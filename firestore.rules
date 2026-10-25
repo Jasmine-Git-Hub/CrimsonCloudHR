@@ -1,0 +1,358 @@
+rules_version = '2';
+
+// =====================================================================
+// CrimsonCloudHR — Firestore Security Rules
+// Shared by the HR app AND the public Job Portal (same Firebase project).
+//
+// Roles live in users/{uid}.role (case-insensitive):
+//   admin       → full access
+//   hr          → manager + can edit employee records (not payroll/settings)
+//   supervisor  → manager: reads everything HR-related, approves leave /
+//                 timesheets / requests, runs recruitment. NO payroll or
+//                 system-settings writes, NO employee-record writes.
+//   employee/ess→ self-service only (own records, matched by employeeId)
+//
+// Records are owned by EMPLOYEE ID (users/{uid}.employeeId), not by uid,
+// because that's how the app links timesheets/leave/requests to people.
+// NOTE: every get() below costs 1 document read (cached per request).
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------- helpers ----------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAnonymous() {
+      return signedIn()
+        && request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'anonymous';
+    }
+
+    function profilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function profile() {
+      return get(profilePath()).data;
+    }
+
+    function hasProfile() {
+      return signedIn() && !isAnonymous() && exists(profilePath());
+    }
+
+    function role() {
+      return string(profile().get('role', '')).lower();
+    }
+
+    function isActive() {
+      return string(profile().get('status', 'Enabled')).lower() != 'disabled';
+    }
+
+    function isAdmin()   { return hasProfile() && isActive() && role() == 'admin'; }
+    function isHR()      { return hasProfile() && isActive() && role() in ['admin', 'hr']; }
+    function isManager() { return hasProfile() && isActive() && role() in ['admin', 'hr', 'supervisor']; }
+    function isStaff()   { return hasProfile() && isActive(); }
+
+    function myEmpId() {
+      return profile().get('employeeId', '__none__');
+    }
+
+    // The codebase uses both `employeeId` and `employee_id`; accept either.
+    function ownsExisting() {
+      return isStaff() && (
+        resource.data.get('employeeId', null) == myEmpId() ||
+        resource.data.get('employee_id', null) == myEmpId()
+      );
+    }
+
+    function changes() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function isTime(v)  { return v is string && v.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$'); }
+    function isDate(v)  { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    function shortStr(v, max) { return v is string && v.size() <= max; }
+
+    // ---- Philippine server clock (UTC+8, no DST) ----
+    function manilaNow() { return request.time + duration.value(8, 'h'); }
+    function pad2(n) { return n < 10 ? '0' + string(n) : string(n); }
+    function manilaToday() {
+      return string(manilaNow().year()) + '-' + pad2(manilaNow().month()) + '-' + pad2(manilaNow().day());
+    }
+    function minutesOf(hhmm) { return int(hhmm.split(':')[0]) * 60 + int(hhmm.split(':')[1]); }
+    function nearServerTime(hhmm) {
+      return math.abs(minutesOf(hhmm) - (manilaNow().hours() * 60 + manilaNow().minutes())) <= 5;
+    }
+    // Same formula as computeHours() in src/app/schemas/timesheet.ts:
+    // 1h unpaid break once the span reaches 9h; first 8h regular, rest OT.
+    function workedHours(d) {
+      let span = (minutesOf(d.timeOut) - minutesOf(d.timeIn)) / 60.0;
+      return span >= 9 ? span - 1 : span;
+    }
+    function hoursMatch(d) {
+      return d.get('timeOut', '') == ''
+        ? d.get('hoursWorked', 0) == 0 && d.get('overtime', 0) == 0
+        : isTime(d.timeIn) && isTime(d.timeOut)
+          && minutesOf(d.timeOut) > minutesOf(d.timeIn)
+          && math.abs(d.hoursWorked - (workedHours(d) > 8 ? 8 : workedHours(d))) <= 0.011
+          && math.abs(d.overtime - (workedHours(d) > 8 ? workedHours(d) - 8 : 0)) <= 0.011;
+    }
+
+    // =================================================================
+    // PUBLIC JOB PORTAL
+    // =================================================================
+
+    // Anyone (even logged out) can read OPEN job postings.
+    // Queries must include where('status', '==', 'Open') unless manager.
+    match /jobs/{jobId} {
+      allow read: if resource.data.status == 'Open' || isManager();
+      allow create, update: if isManager();
+      allow delete: if isHR();
+    }
+
+    // Applicants sign in ANONYMOUSLY in the job portal, so writes are
+    // never unauthenticated. Each applicant only ever sees their own rows.
+    match /applicants/{appId} {
+      allow create: if isManager() || signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.status == 'Pending'
+        && shortStr(request.resource.data.name, 120)
+        && shortStr(request.resource.data.email, 200)
+        && shortStr(request.resource.data.get('coverLetter', ''), 5000)
+        && shortStr(request.resource.data.get('skills', ''), 2000)
+        && shortStr(request.resource.data.get('experience', ''), 3000)
+        && shortStr(request.resource.data.get('education', ''), 2000)
+        && shortStr(request.resource.data.get('resumeURL', ''), 500)
+        && request.resource.data.keys().size() <= 20;
+      allow read: if isManager()
+        || (signedIn() && resource.data.get('ownerUid', null) == request.auth.uid);
+      allow update: if isManager();
+      allow delete: if isHR()
+        || (signedIn() && resource.data.get('ownerUid', null) == request.auth.uid);
+    }
+
+    match /interviews/{id}      { allow read, write: if isManager(); }
+    match /evaluations/{id}     { allow read, write: if isManager(); }
+    match /hiringDecisions/{id} { allow read, write: if isManager(); }
+
+    // =================================================================
+    // USERS (accounts + roles = "system settings")
+    // =================================================================
+    match /users/{userId} {
+      allow read: if isManager()
+        || (signedIn() && request.auth.uid == userId)
+        || (signedIn() && resource.data.get('email', '') == request.auth.token.email);
+
+      // Self-registration (ClaimAccount): only as a plain employee, and only
+      // when linked to an employees/ record that carries the same email.
+      function linkedEmployee() {
+        return get(/databases/$(database)/documents/employees/$(request.resource.data.employeeDocId)).data;
+      }
+      allow create: if isAdmin() || (
+        signedIn() && !isAnonymous()
+        && request.auth.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && string(request.resource.data.role).lower() in ['employee', 'ess']
+        && request.resource.data.get('status', 'Enabled') == 'Enabled'
+        && linkedEmployee().email == request.auth.token.email
+        && linkedEmployee().employeeId == request.resource.data.employeeId
+      );
+
+      // Users may edit ONLY these personal fields on their own profile —
+      // never role, status, IDs, leave balances, position or salary.
+      allow update: if isAdmin() || (
+        signedIn() && request.auth.uid == userId
+        && changes().hasOnly(['firstName', 'lastName', 'middleName', 'username', 'phone', 'address',
+                              'dob', 'gender', 'civilStatus', 'emergencyName', 'emergencyRelation',
+                              'emergencyPhone', 'imageUrl', 'lastLogin'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // =================================================================
+    // EMPLOYEE MASTER RECORDS
+    // =================================================================
+    match /employees/{empDocId} {
+      allow read: if isManager()
+        || (signedIn() && resource.data.get('email', '') == request.auth.token.email);
+      allow create, delete: if isHR();
+      allow update: if isHR() || (
+        signedIn() && resource.data.get('email', '') == request.auth.token.email
+        && changes().hasOnly(['phone', 'address', 'dob', 'gender', 'civilStatus',
+                              'emergencyName', 'emergencyRelation', 'emergencyPhone',
+                              'profileImage', 'photoURL'])
+      );
+    }
+
+    // =================================================================
+    // ATTENDANCE / TIME LOGS — tamper-proof
+    //  • one record per employee per day: doc ID must be "<employeeId>_<date>"
+    //  • date must be TODAY and times within ±5 min of the server clock
+    //    (Asia/Manila), so nobody can back-date or invent hours
+    //  • hoursWorked/overtime are recomputed here from timeIn/timeOut
+    //  • employees can never approve, edit after time-out, or delete
+    //  • managers can approve/correct OTHER people's records, never their own
+    // =================================================================
+    match /timesheets/{tsId} {
+      allow read: if isManager() || ownsExisting();
+
+      allow create: if isAdmin() || (
+        isStaff()
+        && tsId == request.resource.data.employeeId + '_' + request.resource.data.date
+        && request.resource.data.employeeId == myEmpId()
+        && request.resource.data.status == 'Submitted'
+        && request.resource.data.date == manilaToday()
+        && isTime(request.resource.data.timeIn)
+        && nearServerTime(request.resource.data.timeIn)
+        && request.resource.data.timeInAt == request.time
+        && request.resource.data.timeOut == ''
+        && request.resource.data.hoursWorked == 0
+        && request.resource.data.overtime == 0
+      );
+
+      allow update: if isAdmin()
+        || (isManager() && !ownsExisting()
+            && !changes().hasAny(['employeeId', 'employee_id', 'date', 'timeInAt', 'timeOutAt'])
+            && hoursMatch(request.resource.data))
+        || (
+          ownsExisting()
+          && resource.data.status == 'Submitted'
+          && resource.data.date == manilaToday()
+          && resource.data.get('timeOut', '') == ''
+          && changes().hasOnly(['timeOut', 'timeOutAt', 'hoursWorked', 'overtime'])
+          && isTime(request.resource.data.timeOut)
+          && nearServerTime(request.resource.data.timeOut)
+          && request.resource.data.timeOutAt == request.time
+          && hoursMatch(request.resource.data)
+        );
+      allow delete: if isAdmin();
+    }
+
+    // =================================================================
+    // LEAVE + GENERIC REQUESTS (ownership via employee_id)
+    // Employees file and may cancel while still Pending. Managers decide on
+    // OTHER people's requests only (no self-approval).
+    // =================================================================
+    match /leaveRequests/{id} {
+      allow read: if isManager() || ownsExisting();
+      allow create: if (isHR() && request.resource.data.employee_id != myEmpId()) || (
+        isStaff()
+        && request.resource.data.employee_id == myEmpId()
+        && request.resource.data.status == 'Pending'
+        && isDate(request.resource.data.start_date)
+        && isDate(request.resource.data.end_date)
+        && request.resource.data.end_date >= request.resource.data.start_date
+        && shortStr(request.resource.data.get('reason', ''), 1000)
+      );
+      allow update: if isAdmin()
+        || (isManager() && !ownsExisting()
+            && !changes().hasAny(['employee_id', 'start_date', 'end_date', 'leave_type']))
+        || (
+          ownsExisting()
+          && resource.data.status == 'Pending'
+          && changes().hasOnly(['status'])
+          && request.resource.data.status == 'Cancelled'
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /requests/{id} {
+      allow read: if isManager() || ownsExisting();
+      allow create: if (isHR() && request.resource.data.employee_id != myEmpId()) || (
+        isStaff()
+        && request.resource.data.employee_id == myEmpId()
+        && request.resource.data.status == 'Pending'
+        && shortStr(request.resource.data.get('reason', ''), 1000)
+      );
+      allow update: if isAdmin()
+        || (isManager() && !ownsExisting() && !changes().hasAny(['employee_id', 'details']))
+        || (
+          ownsExisting()
+          && resource.data.status == 'Pending'
+          && changes().hasOnly(['status'])
+          && request.resource.data.status == 'Cancelled'
+        );
+      allow delete: if isAdmin();
+    }
+
+    // =================================================================
+    // PERFORMANCE, TRAINING, NOTIFICATIONS
+    // =================================================================
+    // Evaluations are written once by a manager about SOMEONE ELSE and are
+    // then final: only an admin can correct or delete them. Employees read only.
+    match /performance_evaluations/{id} {
+      allow read: if isManager() || (isStaff() && (
+        resource.data.get('employeeId', null) == myEmpId() ||
+        resource.data.get('customEmployeeId', null) == myEmpId()
+      ));
+      allow create: if isAdmin() || (
+        isManager()
+        && request.resource.data.get('employeeId', '') != myEmpId()
+        && request.resource.data.get('customEmployeeId', '') != myEmpId()
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // Training assignments are managed by HR/supervisors; employees read only.
+    match /trainings/{id} {
+      allow read: if isManager() || ownsExisting();
+      allow create, update, delete: if isManager();
+    }
+
+    // Queries must filter: or(type == 'Announcement', employeeId == mine).
+    match /notifications/{id} {
+      allow read: if isManager() || (isStaff() && (
+        resource.data.get('type', '') == 'Announcement' ||
+        resource.data.get('employeeId', null) == myEmpId()
+      ));
+      allow create: if isManager();
+      allow update: if isManager() || (
+        isStaff()
+        && resource.data.get('employeeId', null) == myEmpId()
+        && changes().hasOnly(['isRead'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // =================================================================
+    // PAYROLL — read by managers / owner, WRITE ADMIN ONLY
+    // =================================================================
+    match /employeePayrolls/{id} {
+      allow read: if isManager() || ownsExisting();
+      allow write: if isAdmin();
+    }
+    match /payrollPeriods/{id} {
+      allow read: if isManager();
+      allow write: if isAdmin();
+    }
+    match /claims/{id} {
+      allow read: if isManager() || ownsExisting();
+      allow write: if isAdmin();
+    }
+
+    // =================================================================
+    // SYSTEM SETTINGS + AUDIT LOGS — admin only
+    // =================================================================
+    match /settings/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    // Signed-in users may append entries about THEMSELVES; nobody can edit
+    // or delete history. (Pre-login failures can't be logged — by design,
+    // unauthenticated writes are blocked. Firebase Auth throttles brute force.)
+    match /audit_logs/{id} {
+      allow create: if signedIn() && !isAnonymous()
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.timestamp == request.time;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Everything else is denied by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
