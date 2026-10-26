@@ -5,7 +5,7 @@ import { getAnalytics } from "firebase/analytics";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 
 // Web config is public by design (security = Firestore rules + App Check).
 // Restrict this API key to your domains in Google Cloud Console → Credentials.
@@ -34,7 +34,7 @@ if (import.meta.env.DEV) {
 const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 if (recaptchaSiteKey) {
   initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+    provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey),
     isTokenAutoRefreshEnabled: true,
   });
 } else {
