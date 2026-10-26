@@ -4,7 +4,6 @@ import { collection, getDocs, updateDoc, doc, onSnapshot, query, addDoc, where }
 import { db } from "../../config/firebaseSetup";
 import { computeHours } from "../schemas/timesheet";
 import Attendance from "./time/Attendance";
-import Reports from "./time/Reports";
 
 interface Timesheet {
   id: string;
@@ -308,14 +307,6 @@ export default function Time() {
           >
             Live Attendance
           </button>
-          <button
-            onClick={() => setActiveTab('reports')}
-            className={`px-6 py-4 font-bold text-sm transition-colors border-b-2 ${
-              activeTab === 'reports' ? 'text-[#810100] border-[#810100]' : 'text-gray-500 border-transparent hover:text-gray-800'
-            }`}
-          >
-            Time Reports
-          </button>
         </div>
 
         {/* TAB CONTENT */}
@@ -355,9 +346,9 @@ export default function Time() {
                   <h2 className="text-xl font-black text-[#1B1717] mb-6">Filter Records</h2>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                    <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">From Date</label><input type="date" name="fromDate" value={filters.fromDate} onChange={handleChange} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl focus:border-[#810100] outline-none" /></div>
-                    <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">To Date</label><input type="date" name="toDate" value={filters.toDate} onChange={handleChange} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl focus:border-[#810100] outline-none" /></div>
-                    <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Employee</label><input type="text" name="employee" placeholder="Name or ID" value={filters.employee} onChange={handleChange} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl focus:border-[#810100] outline-none" /></div>
+                    <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">From Date</label><input autoComplete="off" type="date" name="fromDate" value={filters.fromDate} onChange={handleChange} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl focus:border-[#810100] outline-none" /></div>
+                    <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">To Date</label><input autoComplete="off" type="date" name="toDate" value={filters.toDate} onChange={handleChange} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl focus:border-[#810100] outline-none" /></div>
+                    <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Employee</label><input autoComplete="off" type="text" name="employee" placeholder="Name or ID" value={filters.employee} onChange={handleChange} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl focus:border-[#810100] outline-none" /></div>
                     <div>
                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Sub Unit</label>
                       <select name="subUnit" value={filters.subUnit} onChange={handleChange} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl focus:border-[#810100] outline-none">
@@ -593,7 +584,6 @@ export default function Time() {
           )}
 
           {activeTab === "attendance" && <Attendance />}
-          {activeTab === "reports" && <Reports />}
         </div>
       </div>
 

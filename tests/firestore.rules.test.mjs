@@ -8,7 +8,7 @@ import {
   initializeTestEnvironment, assertSucceeds, assertFails,
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection,
+  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection, writeBatch,
   query, where, or, serverTimestamp,
 } from 'firebase/firestore';
 import { manilaDate, manilaTime, computeHours } from '../src/app/schemas/timesheet.ts';
@@ -58,9 +58,11 @@ beforeEach(async () => {
     await setDoc(doc(db, 'timesheets', `${EMP.alice}_2026-01-05`), closedShift(EMP.alice, '2026-01-05'));
     await setDoc(doc(db, 'timesheets', `${EMP.sup}_2026-01-05`), closedShift(EMP.sup, '2026-01-05'));
     await setDoc(doc(db, 'timesheets', `${EMP.bob}_${today}`), { employeeId: EMP.bob, date: today, timeIn: '08:00', timeOut: '', hoursWorked: 0, overtime: 0, status: 'Submitted' });
-    await setDoc(doc(db, 'leaveRequests', 'lv-alice'), { employee_id: EMP.alice, status: 'Pending', start_date: today, end_date: today });
-    await setDoc(doc(db, 'leaveRequests', 'lv-alice-approved'), { employee_id: EMP.alice, status: 'Approved', start_date: today, end_date: today });
-    await setDoc(doc(db, 'leaveRequests', 'lv-sup'), { employee_id: EMP.sup, status: 'Pending', start_date: today, end_date: today });
+    const lvDoc = (emp, status, extra = {}) => ({ employee_id: emp, status, start_date: today, end_date: today, leave_type: 'Vacation Leave', total_days: 1, ...extra });
+    await setDoc(doc(db, 'leaveRequests', 'lv-alice'), lvDoc(EMP.alice, 'Pending'));
+    await setDoc(doc(db, 'leaveRequests', 'lv-alice-approved'), lvDoc(EMP.alice, 'Approved'));
+    await setDoc(doc(db, 'leaveRequests', 'lv-sup'), lvDoc(EMP.sup, 'Pending'));
+    await setDoc(doc(db, 'leaveBalances', `${EMP.alice}_${today.slice(0, 4)}`), { employeeId: EMP.alice, year: +today.slice(0, 4), used: { 'Vacation Leave': 1 } });
     await setDoc(doc(db, 'performance_evaluations', 'ev-alice'), { employeeId: EMP.alice, rating: 3, evaluator: 'Sup' });
     await setDoc(doc(db, 'trainings', 'tr-alice'), { employeeId: EMP.alice, status: 'Pending' });
     await setDoc(doc(db, 'employeePayrolls', 'pay-alice'), { employeeId: EMP.alice, net: 20000 });
@@ -157,7 +159,7 @@ test('supervisor approves others but never their own timesheet', async () => {
 
 // ---------------- Leave ----------------
 test('employee leave: create own, cancel only while pending, never approve', async () => {
-  const lv = { employee_id: EMP.alice, status: 'Pending', start_date: today, end_date: today, leave_type: 'Vacation Leave', reason: 'x' };
+  const lv = { employee_id: EMP.alice, status: 'Pending', start_date: today, end_date: today, leave_type: 'Vacation Leave', total_days: 1, reason: 'x' };
   await assertSucceeds(addDoc(collection(alice(), 'leaveRequests'), lv));
   await assertFails(addDoc(collection(alice(), 'leaveRequests'), { ...lv, employee_id: EMP.bob }));
   await assertFails(addDoc(collection(alice(), 'leaveRequests'), { ...lv, status: 'Approved' }));
@@ -168,10 +170,47 @@ test('employee leave: create own, cancel only while pending, never approve', asy
   await assertSucceeds(updateDoc(doc(alice(), 'leaveRequests/lv-alice'), { status: 'Cancelled' }));
 });
 
-test('supervisor approves others leave, not their own, and cannot change dates', async () => {
-  await assertSucceeds(updateDoc(doc(sup(), 'leaveRequests/lv-alice'), { status: 'Approved' }));
-  await assertFails(updateDoc(doc(sup(), 'leaveRequests/lv-sup'), { status: 'Approved' }));
+const YEAR = today.slice(0, 4);
+const approveWith = (db, reqId, empId, used) => {
+  const b = writeBatch(db);
+  b.update(doc(db, 'leaveRequests', reqId), { status: 'Approved' });
+  b.set(doc(db, 'leaveBalances', `${empId}_${YEAR}`), { employeeId: empId, year: +YEAR, used, lastRequestId: reqId });
+  return b.commit();
+};
+
+test('supervisor approves others leave (booking the days), not their own, and cannot change dates', async () => {
+  // Approving without updating the balance is rejected
+  await assertFails(updateDoc(doc(sup(), 'leaveRequests/lv-alice'), { status: 'Approved' }));
+  // Booking the wrong number of days is rejected
+  await assertFails(approveWith(sup(), 'lv-alice', EMP.alice, { 'Vacation Leave': 5 }));
+  await assertSucceeds(approveWith(sup(), 'lv-alice', EMP.alice, { 'Vacation Leave': 2 }));
+  await assertFails(approveWith(sup(), 'lv-sup', EMP.sup, { 'Vacation Leave': 1 }));
   await assertFails(updateDoc(doc(sup(), 'leaveRequests/lv-alice-approved'), { end_date: '2026-12-31' }));
+  // Rejecting needs no booking
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'leaveRequests/lv-alice-2'), { employee_id: EMP.alice, status: 'Pending', start_date: today, end_date: today, leave_type: 'Sick Leave', total_days: 1 }));
+  await assertSucceeds(updateDoc(doc(sup(), 'leaveRequests/lv-alice-2'), { status: 'Rejected', remarks: 'No' }));
+});
+
+test('leave credits: yearly limit enforced on filing and approval; balances only move with an approval', async () => {
+  const lv = { employee_id: EMP.alice, status: 'Pending', start_date: `${YEAR}-03-02`, end_date: `${YEAR}-03-06`, leave_type: 'Emergency Leave', reason: 'x' };
+  await assertSucceeds(addDoc(collection(alice(), 'leaveRequests'), { ...lv, total_days: 3 }));
+  await assertFails(addDoc(collection(alice(), 'leaveRequests'), { ...lv, total_days: 4 }));                // over 3/yr
+  await assertFails(addDoc(collection(alice(), 'leaveRequests'), { ...lv, total_days: 9, leave_type: 'Vacation Leave' })); // more days than the span
+  await assertFails(addDoc(collection(alice(), 'leaveRequests'), { ...lv, end_date: `${+YEAR + 1}-01-02`, total_days: 1 })); // crosses a year
+  await assertFails(addDoc(collection(alice(), 'leaveRequests'), { ...lv, leave_type: 'Party Leave', total_days: 1 }));
+  // Vacation: 1 already used of 15 → 15 more is too many
+  await assertFails(addDoc(collection(alice(), 'leaveRequests'), { ...lv, leave_type: 'Vacation Leave', start_date: `${YEAR}-04-01`, end_date: `${YEAR}-04-30`, total_days: 15 }));
+
+  // Approval that would exceed the limit fails even if booked "correctly"
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'leaveRequests/lv-big'),
+    { employee_id: EMP.alice, status: 'Pending', start_date: `${YEAR}-05-04`, end_date: `${YEAR}-05-29`, leave_type: 'Vacation Leave', total_days: 15 }));
+  await assertFails(approveWith(sup(), 'lv-big', EMP.alice, { 'Vacation Leave': 16 }));
+
+  // Balances: employee reads own, can't write; manager can't edit without an approval
+  await assertSucceeds(getDoc(doc(alice(), 'leaveBalances', `${EMP.alice}_${YEAR}`)));
+  await assertFails(setDoc(doc(alice(), 'leaveBalances', `${EMP.alice}_${YEAR}`), { employeeId: EMP.alice, used: {} }));
+  await assertFails(setDoc(doc(sup(), 'leaveBalances', `${EMP.alice}_${YEAR}`), { employeeId: EMP.alice, used: {}, lastRequestId: 'lv-alice-approved' }));
+  await assertSucceeds(setDoc(doc(admin(), 'leaveBalances', `${EMP.alice}_${YEAR}`), { employeeId: EMP.alice, used: {} }));
 });
 
 // ---------------- Evaluations & training ----------------
@@ -185,6 +224,52 @@ test('evaluations: employees read-only; managers cannot self-evaluate or edit af
   await assertFails(addDoc(collection(sup(), 'performance_evaluations'), { employeeId: EMP.sup, rating: 5 }));
   await assertFails(updateDoc(doc(sup(), 'performance_evaluations/ev-alice'), { rating: 1 }));
   await assertSucceeds(updateDoc(doc(admin(), 'performance_evaluations/ev-alice'), { rating: 4 }));
+});
+
+// ---------------- 360° evaluations ----------------
+const P = '2026-Q4';
+const rid = (subject, type, reviewer) => `${P}__${subject}__${type}__${reviewer}`;
+const evalReq = (subject, type, reviewer) => ({ periodId: P, subjectEmpId: subject, type, reviewerEmpId: reviewer, status: 'Pending' });
+const evalRes = (uid, subject, type, reviewer, score = 4) => ({
+  periodId: P, subjectEmpId: subject, type, reviewerEmpId: reviewer, reviewerUid: uid, score, answers: { wq1: score },
+});
+
+test('360: only managers open reviews; self/peer requests must be well-formed', async () => {
+  await assertSucceeds(setDoc(doc(sup(), 'evaluation_requests', rid(EMP.bob, 'self', EMP.bob)), evalReq(EMP.bob, 'self', EMP.bob)));
+  await assertSucceeds(setDoc(doc(sup(), 'evaluation_requests', rid(EMP.bob, 'peer', EMP.alice)), evalReq(EMP.bob, 'peer', EMP.alice)));
+  // employee can't create requests; self request must point at the subject; peer can't be the subject
+  await assertFails(setDoc(doc(alice(), 'evaluation_requests', rid(EMP.bob, 'peer', EMP.alice)), evalReq(EMP.bob, 'peer', EMP.alice)));
+  await assertFails(setDoc(doc(sup(), 'evaluation_requests', rid(EMP.bob, 'self', EMP.alice)), evalReq(EMP.bob, 'self', EMP.alice)));
+  await assertFails(setDoc(doc(sup(), 'evaluation_requests', rid(EMP.bob, 'peer', EMP.bob)), evalReq(EMP.bob, 'peer', EMP.bob)));
+  // ID must match the fields; managers can't open their own review
+  await assertFails(setDoc(doc(sup(), 'evaluation_requests', 'whatever'), evalReq(EMP.bob, 'peer', EMP.alice)));
+  await assertFails(setDoc(doc(sup(), 'evaluation_requests', rid(EMP.sup, 'peer', EMP.alice)), evalReq(EMP.sup, 'peer', EMP.alice)));
+  // reviewer reads only requests addressed to them
+  await assertSucceeds(getDocs(query(collection(alice(), 'evaluation_requests'), where('reviewerEmpId', '==', EMP.alice))));
+  await assertFails(getDocs(collection(alice(), 'evaluation_requests')));
+});
+
+test('360: peers answer only when asked, once, and cannot read other answers', async () => {
+  await env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), 'evaluation_requests', rid(EMP.bob, 'peer', EMP.alice)), evalReq(EMP.bob, 'peer', EMP.alice)));
+  const id = rid(EMP.bob, 'peer', EMP.alice);
+  // no request for this subject → denied
+  await assertFails(setDoc(doc(alice(), 'evaluation_responses', rid(EMP.sup, 'peer', EMP.alice)), evalRes('alice', EMP.sup, 'peer', EMP.alice)));
+  // impersonating another reviewer / out-of-range score → denied
+  await assertFails(setDoc(doc(alice(), 'evaluation_responses', id), { ...evalRes('alice', EMP.bob, 'peer', EMP.alice), reviewerUid: 'sup' }));
+  await assertFails(setDoc(doc(alice(), 'evaluation_responses', id), evalRes('alice', EMP.bob, 'peer', EMP.alice, 9)));
+  // valid answer, then no changing it
+  await assertSucceeds(setDoc(doc(alice(), 'evaluation_responses', id), evalRes('alice', EMP.bob, 'peer', EMP.alice)));
+  await assertFails(setDoc(doc(alice(), 'evaluation_responses', id), evalRes('alice', EMP.bob, 'peer', EMP.alice, 5)));
+  await assertSucceeds(getDocs(query(collection(alice(), 'evaluation_responses'), where('reviewerUid', '==', 'alice'))));
+  await assertFails(getDocs(collection(alice(), 'evaluation_responses')));
+  await assertSucceeds(getDocs(collection(sup(), 'evaluation_responses')));
+});
+
+test('360: supervisor rates others, never themselves; employees cannot submit supervisor reviews', async () => {
+  await assertSucceeds(setDoc(doc(sup(), 'evaluation_responses', rid(EMP.alice, 'supervisor', EMP.sup)), evalRes('sup', EMP.alice, 'supervisor', EMP.sup)));
+  await assertFails(setDoc(doc(sup(), 'evaluation_responses', rid(EMP.sup, 'supervisor', EMP.sup)), evalRes('sup', EMP.sup, 'supervisor', EMP.sup)));
+  await assertFails(setDoc(doc(alice(), 'evaluation_responses', rid(EMP.bob, 'supervisor', EMP.alice)), evalRes('alice', EMP.bob, 'supervisor', EMP.alice)));
 });
 
 test('employee cannot mark own training complete', async () => {

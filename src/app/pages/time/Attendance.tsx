@@ -78,7 +78,7 @@ export default function Attendance() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Employee Name</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
+              <input autoComplete="off"
                 type="text"
                 placeholder="Type for hints..."
                 value={searchQuery}
@@ -90,7 +90,7 @@ export default function Attendance() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-            <input
+            <input autoComplete="off"
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}

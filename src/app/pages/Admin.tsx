@@ -280,7 +280,7 @@ export default function Admin() {
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#1B1717]/40" />
-            <input
+            <input autoComplete="off"
               type="text"
               placeholder="Search by name, username or email..."
               value={searchQuery}
@@ -341,7 +341,7 @@ export default function Admin() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       First Name <span className="text-red-500">*</span>
                     </label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={addFormData.firstName}
                       onChange={(e) => setAddFormData({...addFormData, firstName: e.target.value})}
@@ -350,7 +350,7 @@ export default function Admin() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={addFormData.middleName}
                       onChange={(e) => setAddFormData({...addFormData, middleName: e.target.value})}
@@ -361,7 +361,7 @@ export default function Admin() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Last Name <span className="text-red-500">*</span>
                     </label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={addFormData.lastName}
                       onChange={(e) => setAddFormData({...addFormData, lastName: e.target.value})}
@@ -371,7 +371,7 @@ export default function Admin() {
                 </div>
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     value={nextEmployeeId}
                     readOnly
@@ -403,7 +403,7 @@ export default function Admin() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Email <span className="text-red-500">*</span>
                     </label>
-                    <input
+                    <input autoComplete="off"
                       type="email"
                       value={addFormData.email}
                       onChange={(e) => setAddFormData({...addFormData, email: e.target.value})}
@@ -414,7 +414,7 @@ export default function Admin() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Username <span className="text-red-500">*</span>
                     </label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={addFormData.username}
                       onChange={(e) => setAddFormData({...addFormData, username: e.target.value})}
@@ -426,7 +426,7 @@ export default function Admin() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Password <span className="text-red-500">*</span>
                       </label>
-                      <input
+                      <input autoComplete="new-password"
                         type="password"
                         value={addFormData.password}
                         onChange={(e) => setAddFormData({...addFormData, password: e.target.value})}
@@ -437,7 +437,7 @@ export default function Admin() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Confirm Password <span className="text-red-500">*</span>
                       </label>
-                      <input
+                      <input autoComplete="new-password"
                         type="password"
                         value={addFormData.confirmPassword}
                         onChange={(e) => setAddFormData({...addFormData, confirmPassword: e.target.value})}
@@ -463,7 +463,7 @@ export default function Admin() {
                 <h4 className="text-md font-semibold text-[#1B1717] mb-3 pb-1 border-b border-gray-200">Account Status</h4>
                 <div className="flex gap-6">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input
+                    <input autoComplete="off"
                       type="radio"
                       name="status"
                       value="Enabled"
@@ -474,7 +474,7 @@ export default function Admin() {
                     <span className="text-green-600 font-medium">Enabled</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input
+                    <input autoComplete="off"
                       type="radio"
                       name="status"
                       value="Disabled"
@@ -521,7 +521,7 @@ export default function Admin() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Employee Name</label>
-                <input 
+                <input autoComplete="off" 
                   value={editFormData.employeeName} 
                   readOnly 
                   className="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-50 text-gray-600 cursor-not-allowed" 
@@ -530,7 +530,7 @@ export default function Admin() {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
-                <input 
+                <input autoComplete="off" 
                   value={editFormData.employeeId} 
                   onChange={(e) => setEditFormData({...editFormData, employeeId: e.target.value})}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-[#810100] focus:ring-1 focus:ring-[#810100]"
@@ -568,7 +568,7 @@ export default function Admin() {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                <input 
+                <input autoComplete="off" 
                   value={editFormData.username} 
                   onChange={(e) => setEditFormData({...editFormData, username: e.target.value})} 
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-[#810100] focus:ring-1 focus:ring-[#810100]" 
@@ -576,7 +576,7 @@ export default function Admin() {
               </div>
               
               <div className="flex items-center gap-2">
-                <input 
+                <input autoComplete="off" 
                   type="checkbox" 
                   checked={editFormData.changePassword} 
                   onChange={(e) => setEditFormData({...editFormData, changePassword: e.target.checked})} 
@@ -590,7 +590,7 @@ export default function Admin() {
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-                    <input 
+                    <input autoComplete="new-password" 
                       type="password" 
                       placeholder="Enter new password"
                       value={editFormData.password}
@@ -600,7 +600,7 @@ export default function Admin() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-                    <input 
+                    <input autoComplete="new-password" 
                       type="password" 
                       placeholder="Confirm new password"
                       value={editFormData.confirmPassword}

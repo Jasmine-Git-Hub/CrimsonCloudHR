@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../../config/firebaseSetup";
-import { signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendPasswordResetEmail } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router";
-import { LogOut, User, Settings, ChevronDown, Key } from "lucide-react";
+import { LogOut, User, Settings, ChevronDown, Key, X, Mail } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +17,9 @@ export default function UserNav() {
   const navigate = useNavigate();
   const [user, setUser] = useState(auth.currentUser);
   const [role, setRole] = useState<string | null>(null);
+  const [employeeId, setEmployeeId] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+  const [resetStatus, setResetStatus] = useState<"" | "sending" | "sent" | "error">("");
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [passwordData, setPasswordData] = useState({
     currentPassword: "",
@@ -34,6 +37,7 @@ export default function UserNav() {
         const userDoc = await getDoc(doc(db, "users", currentUser.uid));
         if (userDoc.exists()) {
           setRole(String(userDoc.data().role || "").toLowerCase());
+          setEmployeeId(userDoc.data().employeeId || "");
         }
       }
     });
@@ -82,14 +86,29 @@ export default function UserNav() {
     }
   };
 
+  const handleSendReset = async () => {
+    if (!user?.email) return;
+    try {
+      setResetStatus("sending");
+      await sendPasswordResetEmail(auth, user.email);
+      setResetStatus("sent");
+    } catch (error) {
+      console.error("Password reset email failed:", error);
+      setResetStatus("error");
+    }
+  };
+
+  const formatDate = (value?: string) => (value ? new Date(value).toLocaleString("en-PH") : "—");
+
   const handleChangePassword = async () => {
     if (!user) return;
     if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
       setPasswordError("All fields are required");
       return;
     }
-    if (passwordData.newPassword.length < 6) {
-      setPasswordError("New password must be at least 6 characters");
+    const strength = validatePassword(passwordData.newPassword);
+    if (!strength.isValid) {
+      setPasswordError(strength.message);
       return;
     }
     if (passwordData.newPassword !== passwordData.confirmPassword) {
@@ -134,16 +153,8 @@ export default function UserNav() {
         <DropdownMenuLabel className="font-bold text-gray-500 text-xs uppercase tracking-widest px-2 py-2">My Account</DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-gray-100 my-1" />
         
-        <DropdownMenuItem onClick={handleProfileClick} className="cursor-pointer hover:bg-gray-50 rounded-lg px-2 py-2 transition-colors">
-          <User className="mr-2 h-4 w-4 text-gray-600" /> <span className="font-medium text-gray-800">Profile</span>
-        </DropdownMenuItem>
-        
-        <DropdownMenuItem className="cursor-pointer hover:bg-gray-50 rounded-lg px-2 py-2 transition-colors">
+        <DropdownMenuItem onClick={() => { setResetStatus(""); setShowSettings(true); }} className="cursor-pointer hover:bg-gray-50 rounded-lg px-2 py-2 transition-colors">
           <Settings className="mr-2 h-4 w-4 text-gray-600" /> <span className="font-medium text-gray-800">Settings</span>
-        </DropdownMenuItem>
-        
-        <DropdownMenuItem onClick={() => setShowChangePassword(true)} className="cursor-pointer hover:bg-gray-50 rounded-lg px-2 py-2 transition-colors">
-          <Key className="mr-2 h-4 w-4 text-gray-600" /> <span className="font-medium text-gray-800">Change Password</span>
         </DropdownMenuItem>
         
         <DropdownMenuSeparator className="bg-gray-100 my-1" />
@@ -154,6 +165,59 @@ export default function UserNav() {
         </DropdownMenuItem>
       </DropdownMenuContent>
 
+      {/* Account Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[999]" onClick={() => setShowSettings(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl animate-in zoom-in duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-black text-[#1B1717] uppercase tracking-tight">Account Settings</h2>
+              <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-gray-100 rounded-full" aria-label="Close"><X className="w-5 h-5" /></button>
+            </div>
+
+            <dl className="space-y-3 bg-gray-50 p-5 rounded-2xl border border-gray-100 text-sm">
+              {[
+                ["Email", user?.email || "—"],
+                ["Role", role ? role.toUpperCase() : "—"],
+                ["Employee ID", employeeId || "—"],
+                ["Last sign-in", formatDate(user?.metadata.lastSignInTime)],
+                ["Account created", formatDate(user?.metadata.creationTime)],
+              ].map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-4">
+                  <dt className="text-[10px] font-black text-gray-400 uppercase tracking-widest pt-0.5">{label}</dt>
+                  <dd className="font-bold text-[#1B1717] text-right break-all">{value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className="space-y-3 mt-6">
+              <button
+                onClick={() => { setShowSettings(false); handleProfileClick(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 border-2 border-gray-100 rounded-xl hover:bg-gray-50 font-bold text-sm text-[#1B1717] transition-colors"
+              >
+                <User className="w-4 h-4 text-[#810100]" /> Edit my profile
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowChangePassword(true); }}
+                className="w-full flex items-center gap-3 px-4 py-3 border-2 border-gray-100 rounded-xl hover:bg-gray-50 font-bold text-sm text-[#1B1717] transition-colors"
+              >
+                <Key className="w-4 h-4 text-[#810100]" /> Change password
+              </button>
+              <button
+                onClick={handleSendReset}
+                disabled={resetStatus === "sending" || resetStatus === "sent"}
+                className="w-full flex items-center gap-3 px-4 py-3 border-2 border-gray-100 rounded-xl hover:bg-gray-50 font-bold text-sm text-[#1B1717] transition-colors disabled:opacity-60"
+              >
+                <Mail className="w-4 h-4 text-[#810100]" />
+                {resetStatus === "sending" ? "Sending..." : resetStatus === "sent" ? "Reset link sent — check your inbox" : "Email me a password reset link"}
+              </button>
+              {resetStatus === "error" && (
+                <p className="text-xs font-bold text-red-600">Couldn't send the email. Please try again later.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Change Password Modal */}
       {showChangePassword && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[999]">
@@ -163,7 +227,7 @@ export default function UserNav() {
             <div className="space-y-5">
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Current Password</label>
-                <input
+                <input autoComplete="new-password"
                   type="password"
                   value={passwordData.currentPassword}
                   onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
@@ -174,7 +238,7 @@ export default function UserNav() {
               
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">New Password</label>
-                <input
+                <input autoComplete="new-password"
                   type="password"
                   value={passwordData.newPassword}
                   onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
@@ -185,7 +249,7 @@ export default function UserNav() {
               
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Confirm New Password</label>
-                <input
+                <input autoComplete="new-password"
                   type="password"
                   value={passwordData.confirmPassword}
                   onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}

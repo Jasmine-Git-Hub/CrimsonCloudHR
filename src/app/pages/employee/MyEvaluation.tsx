@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Target, TrendingUp, Star, Award, Loader2, CheckCircle, TrendingDown, Clock, ShieldAlert, Users, UserCheck } from 'lucide-react';
 import { auth, db } from '../../../config/firebaseSetup';
 import { collection, getDocs, doc, getDoc, query, where, or } from 'firebase/firestore';
+import PendingEvaluations from '../../components/PendingEvaluations';
 
 interface PerformanceRecord {
   id: string;
@@ -174,7 +175,7 @@ const MyEvaluation: React.FC = () => {
           
           const reviewPeriod = evalData.reviewPeriod || 
             (evalData.dateEvaluated ? 
-              `Q${Math.ceil(new Date(evalData.dateEvaluated).getMonth() / 3)} ${new Date(evalData.dateEvaluated).getFullYear()}` : 
+              `Q${Math.floor(new Date(evalData.dateEvaluated).getMonth() / 3) + 1} ${new Date(evalData.dateEvaluated).getFullYear()}` : 
               'Periodic Review');
           
           const performanceRecord: PerformanceRecord = {
@@ -184,9 +185,9 @@ const MyEvaluation: React.FC = () => {
             evaluatorId: evalData.evaluatorId,
             dateEvaluated: evalData.dateEvaluated || "",
             ratings: ratings,
-            averageScore: evalData.averageScore || 0,
+            averageScore: Number(evalData.averageScore ?? evalData.rating ?? 0),
             interpretation: evalData.interpretation || "No rating",
-            strengths: evalData.strengths || "No strengths highlighted.",
+            strengths: evalData.strengths || evalData.comments || "No strengths highlighted.",
             improvement: evalData.improvement || "No improvement areas highlighted.",
             employeeId: evalData.employeeId,
             customEmployeeId: evalData.customEmployeeId,
@@ -311,6 +312,8 @@ const MyEvaluation: React.FC = () => {
           </div>
         )}
       </div>
+
+      {userEmployeeId && <PendingEvaluations employeeId={userEmployeeId} />}
 
       {evaluations.length === 0 ? (
         <div className="bg-white rounded-[32px] border border-gray-100 p-16 text-center shadow-sm">

@@ -1,4 +1,4 @@
-// Run: npm run test:payroll   (Node 24 runs TypeScript directly)
+// Run: npm run test:unit   (Node 24 runs TypeScript directly)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {

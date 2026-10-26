@@ -237,7 +237,7 @@ const MyProfile: React.FC = () => {
               <div className={isEditing ? "" : "bg-gray-50 p-4 rounded-2xl border border-gray-100"}>
                 <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2">First Name</p>
                 {isEditing ? (
-                  <input type="text" name="firstName" value={editForm.firstName} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Enter first name" />
+                  <input autoComplete="off" type="text" name="firstName" value={editForm.firstName} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Enter first name" />
                 ) : (
                   <p className="text-sm font-bold text-[#1B1717] px-2">{userData.firstName}</p>
                 )}
@@ -245,7 +245,7 @@ const MyProfile: React.FC = () => {
               <div className={isEditing ? "" : "bg-gray-50 p-4 rounded-2xl border border-gray-100"}>
                 <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2">Last Name</p>
                 {isEditing ? (
-                  <input type="text" name="lastName" value={editForm.lastName} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Enter last name" />
+                  <input autoComplete="off" type="text" name="lastName" value={editForm.lastName} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Enter last name" />
                 ) : (
                   <p className="text-sm font-bold text-[#1B1717] px-2">{userData.lastName || "Not specified"}</p>
                 )}
@@ -269,7 +269,7 @@ const MyProfile: React.FC = () => {
               <div className={isEditing ? "" : "bg-gray-50 p-4 rounded-2xl border border-gray-100"}>
                 <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2">Phone Number</p>
                 {isEditing ? (
-                  <input type="tel" name="phone" value={editForm.phone} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="e.g. +63 912 345 6789" />
+                  <input autoComplete="off" type="tel" name="phone" value={editForm.phone} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="e.g. +63 912 345 6789" />
                 ) : (
                   <div className="flex items-center gap-3"><Phone className="w-5 h-5 text-gray-400" /><p className="text-sm font-bold text-[#1B1717]">{userData.phone}</p></div>
                 )}
@@ -277,7 +277,7 @@ const MyProfile: React.FC = () => {
               <div className={`md:col-span-2 ${isEditing ? "" : "bg-gray-50 p-4 rounded-2xl border border-gray-100"}`}>
                 <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2">Home Address</p>
                 {isEditing ? (
-                  <input type="text" name="address" value={editForm.address} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Full residential address" />
+                  <input autoComplete="off" type="text" name="address" value={editForm.address} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Full residential address" />
                 ) : (
                   <div className="flex items-center gap-3"><MapPin className="w-5 h-5 text-gray-400" /><p className="text-sm font-bold text-[#1B1717]">{userData.address}</p></div>
                 )}
@@ -294,7 +294,7 @@ const MyProfile: React.FC = () => {
               <div>
                 <p className="text-[10px] font-black uppercase text-[#810100]/70 tracking-widest mb-2">Contact Name</p>
                 {isEditing ? (
-                  <input type="text" name="emergencyName" value={editForm.emergencyName} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-[#810100]/20 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Full Name" />
+                  <input autoComplete="off" type="text" name="emergencyName" value={editForm.emergencyName} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-[#810100]/20 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Full Name" />
                 ) : (
                   <p className="text-sm font-bold text-[#1B1717]">{userData.emergencyName || "None provided"}</p>
                 )}
@@ -302,7 +302,7 @@ const MyProfile: React.FC = () => {
               <div>
                 <p className="text-[10px] font-black uppercase text-[#810100]/70 tracking-widest mb-2">Relationship</p>
                 {isEditing ? (
-                  <input type="text" name="emergencyRelation" value={editForm.emergencyRelation} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-[#810100]/20 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="e.g. Spouse, Parent" />
+                  <input autoComplete="off" type="text" name="emergencyRelation" value={editForm.emergencyRelation} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-[#810100]/20 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="e.g. Spouse, Parent" />
                 ) : (
                   <p className="text-sm font-bold text-[#1B1717]">{userData.emergencyRelation || "None provided"}</p>
                 )}
@@ -310,7 +310,7 @@ const MyProfile: React.FC = () => {
               <div>
                 <p className="text-[10px] font-black uppercase text-[#810100]/70 tracking-widest mb-2">Contact Number</p>
                 {isEditing ? (
-                  <input type="tel" name="emergencyPhone" value={editForm.emergencyPhone} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-[#810100]/20 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Phone Number" />
+                  <input autoComplete="off" type="tel" name="emergencyPhone" value={editForm.emergencyPhone} onChange={handleInputChange} className="w-full px-4 py-3 bg-white border-2 border-[#810100]/20 rounded-xl focus:border-[#810100] focus:ring-4 focus:ring-[#810100]/10 outline-none font-bold text-sm transition-all" placeholder="Phone Number" />
                 ) : (
                   <p className="text-sm font-bold text-[#1B1717]">{userData.emergencyPhone || "None provided"}</p>
                 )}

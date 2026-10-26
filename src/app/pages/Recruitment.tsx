@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { buildJobDescription, buildJobRequirements } from "../lib/jobTemplates";
 import {
   Briefcase,
   Users,
@@ -45,6 +46,38 @@ const departmentRoles: Record<string, string[]> = {
 };
 
 const departments = Object.keys(salaryGuide);
+
+// Description/requirements follow the selected role until the recruiter edits them.
+const jobTemplateText = (f: Partial<Job>) => {
+  const level = f.level || "Entry";
+  const title = f.jobTitle || "";
+  return {
+    description: buildJobDescription(title, f.department || "", level, f.employmentType || "Full-time"),
+    requirements: buildJobRequirements(title, level),
+  };
+};
+
+const withJobTemplate = (next: Partial<Job>, prev: Partial<Job>): Partial<Job> => {
+  const before = jobTemplateText(prev);
+  const after = jobTemplateText(next);
+  return {
+    ...next,
+    description: !prev.description || prev.description === before.description ? after.description : next.description,
+    requirements: !prev.requirements || prev.requirements === before.requirements ? after.requirements : next.requirements,
+  };
+};
+
+const defaultJobForm = (): Partial<Job> => {
+  const base: Partial<Job> = {
+    department: departments[0],
+    jobTitle: departmentRoles[departments[0]][0],
+    level: "Entry",
+    employmentType: "Full-time",
+    salaryRange: salaryGuide[departments[0]]["Entry"],
+    status: "Open",
+  };
+  return { ...base, ...jobTemplateText(base) };
+};
 
 // ==================== INTERFACES ====================
 interface Job {
@@ -147,16 +180,7 @@ export default function Recruitment() {
   const [employees, setEmployees] = useState<EmployeeData[]>([]); // ✅ Add employees state
 
   // Form states
-  const [jobForm, setJobForm] = useState<Partial<Job>>({
-    department: departments[0],
-    jobTitle: departmentRoles[departments[0]][0],
-    level: "Entry",
-    description: "",
-    requirements: "",
-    employmentType: "Full-time",
-    salaryRange: salaryGuide[departments[0]]["Entry"],
-    status: "Open",
-  });
+  const [jobForm, setJobForm] = useState<Partial<Job>>(defaultJobForm);
 
   const [applicantForm, setApplicantForm] = useState<Partial<Applicant>>({
     name: "",
@@ -636,16 +660,7 @@ export default function Recruitment() {
   };
 
   const resetForm = () => {
-    setJobForm({
-      department: departments[0],
-      jobTitle: departmentRoles[departments[0]][0],
-      level: "Entry",
-      description: "",
-      requirements: "",
-      employmentType: "Full-time",
-      salaryRange: salaryGuide[departments[0]]["Entry"],
-      status: "Open",
-    });
+    setJobForm(defaultJobForm());
     setApplicantForm({
       name: "",
       email: "",
@@ -795,7 +810,7 @@ export default function Recruitment() {
       <div className="flex gap-4 items-center bg-white p-4 rounded-b-2xl shadow-sm mb-6 border border-gray-100 border-t-0">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
+          <input autoComplete="off"
             type="text"
             placeholder="Search..."
             value={searchTerm}
@@ -1172,12 +1187,12 @@ export default function Recruitment() {
                       onChange={(e) => {
                         const dept = e.target.value;
                         const lvl = jobForm.level || "Entry";
-                        setJobForm({ 
+                        setJobForm(withJobTemplate({ 
                           ...jobForm, 
                           department: dept, 
                           jobTitle: departmentRoles[dept][0],
                           salaryRange: salaryGuide[dept][lvl] 
-                        });
+                        }, jobForm));
                       }}
                       className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none font-bold text-sm bg-white"
                     >
@@ -1190,7 +1205,7 @@ export default function Recruitment() {
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Specific Role / Position *</label>
                     <select
                       value={jobForm.jobTitle}
-                      onChange={(e) => setJobForm({ ...jobForm, jobTitle: e.target.value })}
+                      onChange={(e) => setJobForm(withJobTemplate({ ...jobForm, jobTitle: e.target.value }, jobForm))}
                       className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none font-bold text-sm bg-white"
                     >
                       {departmentRoles[jobForm.department || departments[0]].map(role => (
@@ -1207,7 +1222,7 @@ export default function Recruitment() {
                       onChange={(e) => {
                         const lvl = e.target.value as "Entry" | "Mid" | "Senior";
                         const dept = jobForm.department || departments[0];
-                        setJobForm({ ...jobForm, level: lvl, salaryRange: salaryGuide[dept][lvl] });
+                        setJobForm(withJobTemplate({ ...jobForm, level: lvl, salaryRange: salaryGuide[dept][lvl] }, jobForm));
                       }}
                       className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none font-bold text-sm bg-white"
                     >
@@ -1229,7 +1244,7 @@ export default function Recruitment() {
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Employment Type *</label>
                     <select
                       value={jobForm.employmentType}
-                      onChange={(e) => setJobForm({ ...jobForm, employmentType: e.target.value as any })}
+                      onChange={(e) => setJobForm(withJobTemplate({ ...jobForm, employmentType: e.target.value as any }, jobForm))}
                       className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none font-bold text-sm bg-white"
                     >
                       <option value="Full-time">Full-time</option>
@@ -1239,18 +1254,24 @@ export default function Recruitment() {
                     </select>
                   </div>
                    <div className="col-span-2">
-                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Job Description *</label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Job Description *</label>
+                      <button type="button" onClick={() => setJobForm({ ...jobForm, description: jobTemplateText(jobForm).description })} className="text-[10px] font-black text-[#810100] uppercase tracking-widest hover:underline">↻ Regenerate</button>
+                    </div>
                     <textarea
-                      rows={3}
+                      rows={7}
                       value={jobForm.description}
                       onChange={(e) => setJobForm({ ...jobForm, description: e.target.value })}
                       className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none font-medium text-sm"
                     />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Requirements *</label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Requirements *</label>
+                      <button type="button" onClick={() => setJobForm({ ...jobForm, requirements: jobTemplateText(jobForm).requirements })} className="text-[10px] font-black text-[#810100] uppercase tracking-widest hover:underline">↻ Regenerate</button>
+                    </div>
                     <textarea
-                      rows={3}
+                      rows={7}
                       value={jobForm.requirements}
                       onChange={(e) => setJobForm({ ...jobForm, requirements: e.target.value })}
                       className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none font-medium text-sm"
@@ -1264,7 +1285,7 @@ export default function Recruitment() {
                 <div className="grid grid-cols-2 gap-5">
                   <div className="col-span-2">
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Applicant Name *</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={applicantForm.name}
                       onChange={(e) => setApplicantForm({ ...applicantForm, name: e.target.value })}
@@ -1273,7 +1294,7 @@ export default function Recruitment() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Email *</label>
-                    <input
+                    <input autoComplete="off"
                       type="email"
                       value={applicantForm.email}
                       onChange={(e) => setApplicantForm({ ...applicantForm, email: e.target.value })}
@@ -1282,7 +1303,7 @@ export default function Recruitment() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Phone Number *</label>
-                    <input
+                    <input autoComplete="off"
                       type="tel"
                       value={applicantForm.phone}
                       onChange={(e) => setApplicantForm({ ...applicantForm, phone: e.target.value })}
@@ -1304,7 +1325,7 @@ export default function Recruitment() {
                   </div>
                   <div className="col-span-2">
                      <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Resume Link (PDF/DOCX URL) *</label>
-                    <input
+                    <input autoComplete="off"
                       type="url"
                       value={applicantForm.resumeURL}
                       onChange={(e) => setApplicantForm({ ...applicantForm, resumeURL: e.target.value })}
@@ -1356,7 +1377,7 @@ export default function Recruitment() {
                   
                   <div className="col-span-2">
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Interviewer Name *</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={interviewForm.interviewer}
                       onChange={(e) => setInterviewForm({ ...interviewForm, interviewer: e.target.value })}
@@ -1366,7 +1387,7 @@ export default function Recruitment() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Interview Date & Time *</label>
-                    <input
+                    <input autoComplete="off"
                       type="datetime-local"
                       value={interviewForm.date}
                       onChange={(e) => setInterviewForm({ ...interviewForm, date: e.target.value })}
@@ -1440,21 +1461,21 @@ export default function Recruitment() {
                     <div>
                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Communication</label>
                       <div className="flex items-center gap-3">
-                         <input type="range" min="1" max="10" value={evaluationForm.communication} onChange={(e) => setEvaluationForm({ ...evaluationForm, communication: parseInt(e.target.value) })} className="w-full accent-[#810100]"/>
+                         <input autoComplete="off" type="range" min="1" max="10" value={evaluationForm.communication} onChange={(e) => setEvaluationForm({ ...evaluationForm, communication: parseInt(e.target.value) })} className="w-full accent-[#810100]"/>
                          <span className="font-black text-lg w-6 text-center">{evaluationForm.communication}</span>
                       </div>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Technical Skills</label>
                       <div className="flex items-center gap-3">
-                         <input type="range" min="1" max="10" value={evaluationForm.technical} onChange={(e) => setEvaluationForm({ ...evaluationForm, technical: parseInt(e.target.value) })} className="w-full accent-[#810100]"/>
+                         <input autoComplete="off" type="range" min="1" max="10" value={evaluationForm.technical} onChange={(e) => setEvaluationForm({ ...evaluationForm, technical: parseInt(e.target.value) })} className="w-full accent-[#810100]"/>
                          <span className="font-black text-lg w-6 text-center">{evaluationForm.technical}</span>
                       </div>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Experience</label>
                       <div className="flex items-center gap-3">
-                         <input type="range" min="1" max="10" value={evaluationForm.experience} onChange={(e) => setEvaluationForm({ ...evaluationForm, experience: parseInt(e.target.value) })} className="w-full accent-[#810100]"/>
+                         <input autoComplete="off" type="range" min="1" max="10" value={evaluationForm.experience} onChange={(e) => setEvaluationForm({ ...evaluationForm, experience: parseInt(e.target.value) })} className="w-full accent-[#810100]"/>
                          <span className="font-black text-lg w-6 text-center">{evaluationForm.experience}</span>
                       </div>
                     </div>
@@ -1462,7 +1483,7 @@ export default function Recruitment() {
 
                    <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Interviewer Name</label>
-                    <input
+                    <input autoComplete="off"
                       type="text"
                       value={evaluationForm.interviewer}
                       onChange={(e) => setEvaluationForm({ ...evaluationForm, interviewer: e.target.value })}
@@ -1551,7 +1572,7 @@ export default function Recruitment() {
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Offer Salary (PHP) *</label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₱</span>
-                      <input
+                      <input autoComplete="off"
                         type="number"
                         value={hiringForm.offerSalary}
                         onChange={(e) => setHiringForm({ ...hiringForm, offerSalary: parseInt(e.target.value) || 0 })}
@@ -1562,7 +1583,7 @@ export default function Recruitment() {
                   </div>
                   <div className="col-span-2 md:col-span-1">
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Start Date *</label>
-                    <input
+                    <input autoComplete="off"
                       type="date"
                       value={hiringForm.startDate}
                       onChange={(e) => setHiringForm({ ...hiringForm, startDate: e.target.value })}
@@ -1636,7 +1657,7 @@ export default function Recruitment() {
                 
                 <div className="col-span-2">
                   <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Interviewer Name *</label>
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     value={interviewForm.interviewer}
                     onChange={(e) => setInterviewForm({ ...interviewForm, interviewer: e.target.value })}
@@ -1646,7 +1667,7 @@ export default function Recruitment() {
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Interview Date & Time *</label>
-                  <input
+                  <input autoComplete="off"
                     type="datetime-local"
                     value={interviewForm.date}
                     onChange={(e) => setInterviewForm({ ...interviewForm, date: e.target.value })}
@@ -1769,12 +1790,12 @@ export default function Recruitment() {
                     
                     <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
                       <h4 className="text-lg font-black text-[#1B1717] mb-4">Job Description</h4>
-                      <p className="text-sm text-gray-700 leading-relaxed">{selectedItem.description}</p>
+                      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{selectedItem.description}</p>
                     </div>
 
                     <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
                       <h4 className="text-lg font-black text-[#1B1717] mb-4">Requirements</h4>
-                      <p className="text-sm text-gray-700 leading-relaxed">{selectedItem.requirements}</p>
+                      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{selectedItem.requirements}</p>
                     </div>
                   </div>
                 )}

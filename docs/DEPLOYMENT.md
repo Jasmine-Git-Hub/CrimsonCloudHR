@@ -44,7 +44,7 @@ Firebase Console → **Authentication**:
 ```bash
 npx firebase login
 npm test                 # 9 payroll tests + 22 emulator rules tests (RBAC, tamper-proofing)
-npm run deploy:rules     # deploys firestore.rules + storage.rules
+npm run deploy:rules     # deploys firestore.rules (storage.rules needs the Blaze plan)
 ```
 
 What the rules enforce (see `firestore.rules`):
@@ -139,7 +139,9 @@ whole. These pages were changed so their queries match the rules:
 |---|---|---|---|
 | **Timesheet** | Time-in once per day, time-out once. Date must be **today** and both times within **±5 min of the server clock (Asia/Manila)**. Hours are **recomputed by the rules**. Can't approve, edit afterwards, or delete. | Approve/correct **other people's** records only. Hours must still match the times. | Anything |
 | **Leave / requests** | File own, cancel **only while Pending** | Approve/reject others only; can't change dates or type | Anything |
+| **Leave credits** (`leaveBalances`) | Read own; can't file more working days than are left for the year | Approving books the days in the same write; can't approve past the yearly limit | Rebuild/correct (Leave → *Recalculate Balances*) |
 | **Evaluation** | Read own only | Create for **others** only; **final once submitted** | Correct/delete |
+| **360° review answers** (`evaluation_requests`, `evaluation_responses`) | Answer own self/peer requests **once**; never sees others' raw answers | Open reviews for others, answer as supervisor (never about themselves) | Correct/delete |
 | **Training** | Read own only | Assign/update | Anything |
 | **Profile** | Personal fields only (name, phone, address, emergency contact, photo) | — | Role, status, IDs, balances |
 | **Payslip** | Read own only | Read | Compute (Payroll page) |

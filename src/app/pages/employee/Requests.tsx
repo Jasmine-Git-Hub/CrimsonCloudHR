@@ -227,14 +227,14 @@ const Requests: React.FC = () => {
                 {formData.request_type !== 'Other' && (
                   <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Effective Date *</label>
-                    <input type="date" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.date_effective} onChange={e => setFormData({...formData, date_effective: e.target.value})}/>
+                    <input autoComplete="off" type="date" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.date_effective} onChange={e => setFormData({...formData, date_effective: e.target.value})}/>
                   </div>
                 )}
 
                 {formData.request_type === 'Overtime' && (
                   <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Number of Hours *</label>
-                    <input type="number" step="0.5" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.hours} onChange={e => setFormData({...formData, hours: e.target.value})} placeholder="e.g. 2.5"/>
+                    <input autoComplete="off" type="number" step="0.5" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.hours} onChange={e => setFormData({...formData, hours: e.target.value})} placeholder="e.g. 2.5"/>
                   </div>
                 )}
 
@@ -242,11 +242,11 @@ const Requests: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Correct Time In</label>
-                      <input type="time" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.time_in} onChange={e => setFormData({...formData, time_in: e.target.value})}/>
+                      <input autoComplete="off" type="time" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.time_in} onChange={e => setFormData({...formData, time_in: e.target.value})}/>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Correct Time Out</label>
-                      <input type="time" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.time_out} onChange={e => setFormData({...formData, time_out: e.target.value})}/>
+                      <input autoComplete="off" type="time" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.time_out} onChange={e => setFormData({...formData, time_out: e.target.value})}/>
                     </div>
                   </div>
                 )}
@@ -254,7 +254,7 @@ const Requests: React.FC = () => {
                 {formData.request_type === 'Other' && (
                   <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Subject *</label>
-                    <input type="text" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="e.g. Certificate of Employment"/>
+                    <input autoComplete="off" type="text" required className="w-full border-2 rounded-xl p-3 font-bold" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="e.g. Certificate of Employment"/>
                   </div>
                 )}
               </div>

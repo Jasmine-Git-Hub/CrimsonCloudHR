@@ -434,7 +434,7 @@ export default function SearchPage() {
         <form onSubmit={handleSearch} className="mb-6">
           <div className="flex gap-4">
             <div className="flex-1">
-              <input
+              <input autoComplete="off"
                 type="text"
                 value={queryText}
                 onChange={(e) => setQueryText(e.target.value)}

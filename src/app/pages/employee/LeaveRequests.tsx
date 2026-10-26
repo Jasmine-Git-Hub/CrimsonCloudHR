@@ -9,6 +9,8 @@ import {
   collection, addDoc, query, where, 
   doc, getDoc, updateDoc, onSnapshot 
 } from 'firebase/firestore';
+import { LEAVE_TYPES, LEAVE_LIMITS, countWeekdays, leaveYear, balanceId, remaining, pendingDaysFor, validateLeave, type UsedByType } from '../../lib/leavePolicy';
+import { manilaDate } from '../../schemas/timesheet';
 
 interface LeaveRequest {
   id: string;
@@ -33,9 +35,10 @@ const LeaveRequests: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
-  const [userProfile, setUserProfile] = useState({ 
-    name: '', employee_id: '', vlTotal: 15, slTotal: 15 
-  });
+  const [userProfile, setUserProfile] = useState({ name: '', employee_id: '' });
+  // Approved days per type, by year (from leaveBalances/{employeeId}_{year})
+  const [usedByYear, setUsedByYear] = useState<Record<number, UsedByType>>({});
+  const thisYear = leaveYear(manilaDate());
 
   const [formData, setFormData] = useState({
     leave_type: 'Vacation Leave',
@@ -44,15 +47,11 @@ const LeaveRequests: React.FC = () => {
     reason: ''
   });
 
-  // --- 1. AUTO-CALCULATE DAYS ---
-  const calculatedDays = useMemo(() => {
-    if (!formData.start_date || !formData.end_date) return 0;
-    const start = new Date(formData.start_date);
-    const end = new Date(formData.end_date);
-    const diffTime = end.getTime() - start.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : (diffDays === 0 && formData.start_date === formData.end_date ? 1 : 0);
-  }, [formData.start_date, formData.end_date]);
+  // --- 1. AUTO-CALCULATE DAYS (working days only) ---
+  const calculatedDays = useMemo(
+    () => countWeekdays(formData.start_date, formData.end_date),
+    [formData.start_date, formData.end_date],
+  );
 
   // --- 2. FETCH PROFILE & REAL-TIME REQUESTS ---
   useEffect(() => {
@@ -67,8 +66,6 @@ const LeaveRequests: React.FC = () => {
         setUserProfile({
           name: `${data.firstName || ''} ${data.lastName || ''}`.trim() || data.username || 'Employee',
           employee_id: data.employeeId || 'TBA',
-          vlTotal: data.vlBalance || 15,
-          slTotal: data.slBalance || 15
         });
       }
     };
@@ -97,43 +94,38 @@ const LeaveRequests: React.FC = () => {
     return () => unsubscribe();
   }, [userProfile.employee_id]);
 
+  // Balance docs for this year and (when filing ahead) the form's year.
+  const formYear = formData.start_date ? leaveYear(formData.start_date) : thisYear;
+  useEffect(() => {
+    if (!userProfile.employee_id || userProfile.employee_id === 'TBA') return;
+    const years = Array.from(new Set([thisYear, formYear]));
+    const unsubs = years.map((y) =>
+      onSnapshot(doc(db, 'leaveBalances', balanceId(userProfile.employee_id, y)),
+        (snap) => setUsedByYear((prev) => ({ ...prev, [y]: (snap.data()?.used as UsedByType) || {} })),
+        (err) => console.error('Leave balance:', err)),
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [userProfile.employee_id, thisYear, formYear]);
+
   // --- 3. BALANCE & STATS ---
   const stats = useMemo(() => {
     const approved = requests.filter(r => r.status === 'Approved');
     const pending = requests.filter(r => r.status === 'Pending');
 
-    const usedVl = approved.filter(r => r.leave_type === 'Vacation Leave').reduce((sum, r) => sum + r.total_days, 0);
-    const usedSl = approved.filter(r => r.leave_type === 'Sick Leave').reduce((sum, r) => sum + r.total_days, 0);
-    const totalUsed = approved.reduce((sum, r) => sum + r.total_days, 0);
+    const used = usedByYear[thisYear] || {};
 
     return {
-      vlRem: userProfile.vlTotal - usedVl,
-      slRem: userProfile.slTotal - usedSl,
-      totalUsed,
+      vlRem: remaining('Vacation Leave', used),
+      slRem: remaining('Sick Leave', used),
+      totalUsed: approved.filter(r => leaveYear(r.start_date) === thisYear).reduce((sum, r) => sum + r.total_days, 0),
       pendingCount: pending.reduce((sum, r) => sum + r.total_days, 0)
     };
-  }, [requests, userProfile]);
+  }, [requests, usedByYear, thisYear]);
 
   // --- 4. VALIDATIONS ---
   const checkValidation = () => {
-    if (calculatedDays <= 0) return "Invalid dates. Ensure Start Date is before End Date.";
-    const type = formData.leave_type;
-    const maxDays: Record<string, number> = {
-      'Vacation Leave': 15, 'Sick Leave': 15, 'Emergency Leave': 3,
-      'Maternity Leave': 105, 'Paternity Leave': 7, 'Bereavement Leave': 3, 'Study Leave': 30
-    };
-
-    if (maxDays[type] && calculatedDays > maxDays[type]) {
-      return `${type} cannot exceed ${maxDays[type]} days.`;
-    }
-
-    if (type === 'Vacation Leave' || type === 'Sick Leave') {
-      const pendingAndApproved = requests
-        .filter(r => r.leave_type === type && (r.status === 'Approved' || r.status === 'Pending'))
-        .reduce((sum, r) => sum + r.total_days, 0);
-      const totalAllowed = type === 'Vacation Leave' ? userProfile.vlTotal : userProfile.slTotal;
-      if (pendingAndApproved + calculatedDays > totalAllowed) return "Insufficient Leave Credits.";
-    }
+    const error = validateLeave(formData, usedByYear[formYear] || {}, pendingDaysFor(requests, formData.leave_type, formYear));
+    if (error) return error;
 
     const isOverlapping = requests.some(r => {
       if (r.status === 'Cancelled' || r.status === 'Rejected') return false;
@@ -258,20 +250,19 @@ const LeaveRequests: React.FC = () => {
               <div>
                 <label className="block text-xs font-black text-gray-500 uppercase mb-1">Leave Type *</label>
                 <select className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold focus:border-[#810100] outline-none" value={formData.leave_type} onChange={e => setFormData({...formData, leave_type: e.target.value})}>
-                  <option>Vacation Leave</option>
-                  <option>Sick Leave</option>
-                  <option>Emergency Leave</option>
-                  <option>Paternity Leave</option>
-                  <option>Maternity Leave</option>
-                  <option>Bereavement Leave</option>
+                  {LEAVE_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t} ({Math.max(remaining(t, usedByYear[formYear] || {}, pendingDaysFor(requests, t, formYear)), 0)} of {LEAVE_LIMITS[t]} left)
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">Start Date *</label><input type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})}/></div>
-                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">End Date *</label><input type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={formData.end_date} onChange={e => setFormData({...formData, end_date: e.target.value})}/></div>
+                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">Start Date *</label><input autoComplete="off" type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})}/></div>
+                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">End Date *</label><input autoComplete="off" type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={formData.end_date} onChange={e => setFormData({...formData, end_date: e.target.value})}/></div>
               </div>
               <div className="bg-[#fce8e8] p-4 rounded-xl border-2 border-dashed border-[#810100]/20 flex justify-between items-center">
-                <span className="text-xs font-black text-[#810100] uppercase">Calculated Days:</span>
+                <span className="text-xs font-black text-[#810100] uppercase">Working Days (Mon–Fri):</span>
                 <span className="text-2xl font-black text-[#810100]">{calculatedDays}</span>
               </div>
               <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">Reason *</label><textarea required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" rows={3} value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} placeholder="Reason for leave..."/></div>

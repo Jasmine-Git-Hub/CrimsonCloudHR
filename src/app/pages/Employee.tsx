@@ -339,7 +339,7 @@ export default function Employee() {
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#1B1717]/40" />
-            <input
+            <input autoComplete="off"
               type="text"
               placeholder="Search by name, employee ID, or department..."
               value={searchQuery}
@@ -404,11 +404,11 @@ export default function Employee() {
 
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-gray-500 mb-1">System Generated ID</label>
-                  <input type="text" value={nextEmployeeId} readOnly className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 font-mono cursor-not-allowed" />
+                  <input autoComplete="off" type="text" value={nextEmployeeId} readOnly className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 font-mono cursor-not-allowed" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-                  <input type="text" name="name" value={formData.name} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="text" name="name" value={formData.name} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Department *</label>
@@ -419,15 +419,15 @@ export default function Employee() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Job Title *</label>
-                  <input type="text" name="jobTitle" value={formData.jobTitle} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="text" name="jobTitle" value={formData.jobTitle} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                  <input type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
-                  <input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -439,7 +439,7 @@ export default function Employee() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hire Date</label>
-                  <input type="date" name="hireDate" value={formData.hireDate} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" />
+                  <input autoComplete="off" type="date" name="hireDate" value={formData.hireDate} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" />
                 </div>
               </div>
             </div>
@@ -464,11 +464,11 @@ export default function Employee() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-                  <input type="text" name="name" value={editFormData.name} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="text" name="name" value={editFormData.name} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID *</label>
-                  <input type="text" name="employeeId" value={editFormData.employeeId} readOnly className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none text-gray-500 cursor-not-allowed" />
+                  <input autoComplete="off" type="text" name="employeeId" value={editFormData.employeeId} readOnly className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none text-gray-500 cursor-not-allowed" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Department *</label>
@@ -478,15 +478,15 @@ export default function Employee() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Job Title *</label>
-                  <input type="text" name="jobTitle" value={editFormData.jobTitle} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="text" name="jobTitle" value={editFormData.jobTitle} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                  <input type="email" name="email" value={editFormData.email} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="email" name="email" value={editFormData.email} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
-                  <input type="tel" name="phone" value={editFormData.phone} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
+                  <input autoComplete="off" type="tel" name="phone" value={editFormData.phone} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -498,7 +498,7 @@ export default function Employee() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hire Date</label>
-                  <input type="date" name="hireDate" value={editFormData.hireDate} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" />
+                  <input autoComplete="off" type="date" name="hireDate" value={editFormData.hireDate} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#810100]" />
                 </div>
               </div>
             </div>

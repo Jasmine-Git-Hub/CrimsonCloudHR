@@ -25,6 +25,8 @@ import { faker } from '@faker-js/faker';
 // Shared with the app (Node 24 runs these .ts files directly).
 import { computeHours } from '../src/app/schemas/timesheet.ts';
 import { DEPARTMENTS as DEPARTMENT_NAMES } from '../src/app/lib/departments.ts';
+import { LEAVE_LIMITS, countWeekdays, balanceId } from '../src/app/lib/leavePolicy.ts';
+import { buildJobDescription, buildJobRequirements } from '../src/app/lib/jobTemplates.ts';
 
 const CONFIRM = process.argv.includes('--confirm');
 const PROJECT_ID = 'crimsoncloudhr';
@@ -39,7 +41,8 @@ const COLLECTIONS_TO_WIPE = [
   'users', 'employees', 'attendance', 'timesheets', 'leaveRequests', 'requests',
   'notifications', 'performance_evaluations', 'trainings', 'employeePayrolls',
   'payrollPeriods', 'claims', 'applicants', 'interviews', 'evaluations',
-  'hiringDecisions', 'audit_logs', 'jobs',
+  'hiringDecisions', 'audit_logs', 'jobs', 'leaveBalances',
+  'evaluation_requests', 'evaluation_responses',
 ];
 
 // Job titles per department (names must match src/app/lib/departments.ts).
@@ -216,18 +219,26 @@ async function seed(db, auth) {
   // ---- leave requests ----
   const leaveTypes = ['Vacation Leave', 'Sick Leave', 'Emergency Leave'];
   let leaveCount = 0;
+  const balances = {}; // leaveBalances/{employeeId}_{year}, same shape the app writes on approval
   for (const p of people.filter((x) => x.role !== 'admin')) {
     const n = faker.number.int({ min: 0, max: 3 });
     for (let k = 0; k < n; k++) {
       const start = faker.date.between({ from: new Date(Date.now() - 60 * 864e5), to: new Date(Date.now() + 30 * 864e5) });
-      const totalDays = faker.number.int({ min: 1, max: 3 });
-      const end = new Date(start.getTime() + (totalDays - 1) * 864e5);
-      const status = start > new Date()
+      const end = new Date(start.getTime() + (faker.number.int({ min: 1, max: 3 }) - 1) * 864e5);
+      const totalDays = countWeekdays(iso(start), iso(end)); // working days, like the app
+      if (totalDays === 0 || iso(start).slice(0, 4) !== iso(end).slice(0, 4)) continue;
+      const leaveType = faker.helpers.arrayElement(leaveTypes);
+      const bId = balanceId(p.employeeId, Number(iso(start).slice(0, 4)));
+      balances[bId] ??= { employeeId: p.employeeId, year: Number(iso(start).slice(0, 4)), used: {} };
+      const used = balances[bId].used[leaveType] ?? 0;
+      let status = start > new Date()
         ? faker.helpers.arrayElement(['Pending', 'Pending', 'Approved'])
         : faker.helpers.arrayElement(['Approved', 'Approved', 'Rejected']);
+      if (status === 'Approved' && used + totalDays > LEAVE_LIMITS[leaveType]) status = 'Rejected';
+      if (status === 'Approved') balances[bId].used[leaveType] = used + totalDays;
       writer.set(db.collection('leaveRequests').doc(), {
         employee_id: p.employeeId, employeeName: p.name,
-        leave_type: faker.helpers.arrayElement(leaveTypes),
+        leave_type: leaveType,
         start_date: iso(start), end_date: iso(end), total_days: totalDays,
         reason: faker.helpers.arrayElement(['Family event', 'Medical check-up', 'Personal matters', 'Out-of-town trip', 'Fever and flu']),
         status, dateSubmitted: iso(new Date(start.getTime() - 7 * 864e5)),
@@ -236,6 +247,7 @@ async function seed(db, auth) {
       leaveCount++;
     }
   }
+  for (const [id, b] of Object.entries(balances)) writer.set(db.collection('leaveBalances').doc(id), b);
 
   // ---- overtime / adjustment requests ----
   for (const p of faker.helpers.arrayElements(people, 6)) {
@@ -259,12 +271,21 @@ async function seed(db, auth) {
     });
     if (p.role === 'employee') {
       const evaluator = faker.helpers.arrayElement(supervisors);
+      // Same shape Performance.tsx writes.
+      const ratings = Object.fromEntries(
+        ['workQuality', 'productivity', 'attendance', 'teamwork', 'communication', 'problemSolving']
+          .map((k) => [k, faker.number.int({ min: 2, max: 5 })]),
+      );
+      const averageScore = Math.round((Object.values(ratings).reduce((a, b) => a + b, 0) / 6) * 10) / 10;
+      const interpretation = averageScore >= 4.5 ? 'Excellent' : averageScore >= 3.5 ? 'Very Good'
+        : averageScore >= 2.5 ? 'Good' : averageScore >= 1.5 ? 'Needs Improvement' : 'Poor';
       writer.set(db.collection('performance_evaluations').doc(), {
-        employeeId: p.employeeId, employeeName: p.name, department: p.department,
-        evaluator: evaluator.name, evaluatorId: evaluator.employeeId,
-        rating: faker.number.float({ min: 2.5, max: 5, fractionDigits: 1 }),
-        comments: faker.helpers.arrayElement(['Consistently meets deadlines.', 'Great team player.', 'Needs improvement on documentation.']),
-        dateEvaluated: iso(faker.date.recent({ days: 60 })), status: 'Completed',
+        employeeId: p.employeeId, customEmployeeId: p.employeeId, employeeName: p.name, department: p.department,
+        reviewPeriod: 'Q3 2026', evaluator: evaluator.name, evaluatorId: evaluator.employeeId,
+        ratings, averageScore, interpretation,
+        strengths: faker.helpers.arrayElement(['Consistently meets deadlines.', 'Great team player.', 'Strong problem solver.']),
+        improvement: faker.helpers.arrayElement(['Documentation.', 'Time estimates.', 'Speaking up in meetings.']),
+        finalDecision: 'None', dateEvaluated: iso(faker.date.recent({ days: 60 })), status: 'Finalized',
       });
     }
     writer.set(db.collection('notifications').doc(), {
@@ -280,8 +301,10 @@ async function seed(db, auth) {
   // ---- public job postings ----
   for (const [dept, titles] of Object.entries(DEPARTMENTS)) {
     writer.set(db.collection('jobs').doc(), {
-      jobTitle: titles[0], department: dept, level: 'Mid-Level',
-      description: faker.lorem.paragraph(), requirements: faker.lorem.sentences(3),
+      // Same English templates as Recruitment's "Create Job Posting" form.
+      jobTitle: titles[0], department: dept, level: 'Mid',
+      description: buildJobDescription(titles[0], dept, 'Mid', 'Full-time'),
+      requirements: buildJobRequirements(titles[0], 'Mid'),
       employmentType: 'Full-time', salaryRange: '₱30,000 - ₱50,000',
       status: 'Open', datePosted: iso(faker.date.recent({ days: 20 })),
       createdAt: FieldValue.serverTimestamp(),

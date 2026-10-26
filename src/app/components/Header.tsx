@@ -3,6 +3,7 @@ import { HelpCircle, Search, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import UserNav from "../components/UserNav";
 import NotificationBell from "../components/NotificationBell";
+import HelpDialog from "./HelpDialog";
 import { auth, db } from "../../config/firebaseSetup";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -39,6 +40,7 @@ export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{name: string, path: string, type: string}>>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -259,7 +261,7 @@ export function Header() {
             {searchOpen ? (
               <div className="relative">
                 <form onSubmit={handleSearch} className="flex items-center">
-                  <input
+                  <input autoComplete="off"
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -336,6 +338,7 @@ export function Header() {
 
           {/* Help button */}
           <button
+            onClick={() => setHelpOpen(true)}
             className="w-10 h-10 rounded-full bg-[#EDEBDD] hover:bg-[#E0DDCD] flex items-center justify-center transition-colors text-[#630000]"
             aria-label="Help"
           >
@@ -343,6 +346,7 @@ export function Header() {
           </button>
         </div>
       </div>
+      {helpOpen && <HelpDialog portal={location.pathname.startsWith('/portal')} onClose={() => setHelpOpen(false)} />}
     </header>
   );
 }

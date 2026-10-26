@@ -1,6 +1,7 @@
 import { Search, Calendar, Filter, Download, Eye, CheckCircle, XCircle, Clock, AlertCircle, X, Info, Loader2, Plus } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
-import { collection, updateDoc, doc, onSnapshot, addDoc, getDoc } from "firebase/firestore";
+import { collection, updateDoc, doc, onSnapshot, addDoc, getDoc, writeBatch } from "firebase/firestore";
+import { LEAVE_TYPES, LEAVE_LIMITS, countWeekdays, leaveYear, balanceId, remaining, pendingDaysFor, validateLeave, tallyApproved, type UsedByType } from "../lib/leavePolicy";
 import { db } from "../../config/firebaseSetup";
 import { auth } from "../../config/firebaseSetup";
 
@@ -21,7 +22,10 @@ interface LeaveRequest {
 export default function Leave() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<{name: string; employeeId: string} | null>(null);
+  const [currentUser, setCurrentUser] = useState<{name: string; employeeId: string; role: string} | null>(null);
+  // leaveBalances/{employeeId}_{year} → approved days per type
+  const [balances, setBalances] = useState<Record<string, UsedByType>>({});
+  const [rebuilding, setRebuilding] = useState(false);
 
   // Filter states
   const [searchTerm, setSearchTerm] = useState("");
@@ -50,17 +54,15 @@ export default function Leave() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const leaveTypes = ["Vacation Leave", "Sick Leave", "Emergency Leave", "Maternity Leave", "Paternity Leave", "Bereavement Leave", "Study Leave"];
+  const leaveTypes = LEAVE_TYPES;
 
-  // --- CALCULATE DAYS ---
-  const calculatedDays = useMemo(() => {
-    if (!addFormData.start_date || !addFormData.end_date) return 0;
-    const start = new Date(addFormData.start_date);
-    const end = new Date(addFormData.end_date);
-    const diffTime = end.getTime() - start.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : (diffDays === 0 && addFormData.start_date === addFormData.end_date ? 1 : 0);
-  }, [addFormData.start_date, addFormData.end_date]);
+  // --- CALCULATE DAYS (working days only) ---
+  const calculatedDays = useMemo(
+    () => countWeekdays(addFormData.start_date, addFormData.end_date),
+    [addFormData.start_date, addFormData.end_date],
+  );
+
+  const usedFor = (employeeId: string, year: number) => balances[balanceId(employeeId, year)] || {};
 
   // ==============================
   // 🛡️ REAL-TIME DATA FETCHING
@@ -78,7 +80,8 @@ export default function Leave() {
             const userData = userDoc.data();
             const userInfo = {
               name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim(),
-              employeeId: userData.employeeId || ''
+              employeeId: userData.employeeId || '',
+              role: String(userData.role || '').toLowerCase()
             };
             setCurrentUser(userInfo);
           }
@@ -102,8 +105,35 @@ export default function Leave() {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const unsubBalances = onSnapshot(collection(db, "leaveBalances"), (snapshot) => {
+      const map: Record<string, UsedByType> = {};
+      snapshot.forEach((d) => { map[d.id] = (d.data().used as UsedByType) || {}; });
+      setBalances(map);
+    }, (err) => console.error("Leave balances:", err));
+
+    return () => { unsubscribe(); unsubBalances(); };
   }, []);
+
+  // Admin: recompute every balance from approved requests (e.g. after importing old data).
+  const rebuildBalances = async () => {
+    if (!confirm("Recalculate all leave balances from approved requests?")) return;
+    setRebuilding(true);
+    try {
+      const tally = tallyApproved(leaveRequests);
+      const batch = writeBatch(db);
+      for (const id of Object.keys(balances)) {
+        const cut = id.lastIndexOf("_");
+        if (!tally[id]) batch.set(doc(db, "leaveBalances", id), { employeeId: id.slice(0, cut), year: Number(id.slice(cut + 1)), used: {} });
+      }
+      for (const [id, b] of Object.entries(tally)) batch.set(doc(db, "leaveBalances", id), b);
+      await batch.commit();
+      alert("Leave balances recalculated.");
+    } catch (e) {
+      console.error("Rebuild failed:", e);
+      alert("Couldn't recalculate balances.");
+    }
+    setRebuilding(false);
+  };
 
   // Auto-populate form when current user is loaded
   useEffect(() => {
@@ -128,16 +158,33 @@ export default function Leave() {
       return;
     }
 
+    const year = leaveYear(selectedRequest.start_date);
+    const used = usedFor(selectedRequest.employee_id, year);
+    if (confirmAction === "approve" && selectedRequest.total_days > remaining(selectedRequest.leave_type, used)) {
+      alert(`Can't approve: only ${Math.max(remaining(selectedRequest.leave_type, used), 0)} ${selectedRequest.leave_type} day(s) left for ${year}.`);
+      return;
+    }
+
     setIsUpdating(true);
     try {
       const requestRef = doc(db, "leaveRequests", selectedRequest.id!);
       const newStatus = confirmAction === "approve" ? "Approved" : "Rejected";
-      
-      // 1. Update Leave Request Status & Admin Remarks sa Database
-      await updateDoc(requestRef, {
-        status: newStatus,
-        ...(confirmAction === "reject" && { remarks: confirmReason }), 
-      });
+
+      // 1. Update the request. Approving also books the days in the yearly
+      //    balance in the same batch (firestore.rules require both together).
+      if (confirmAction === "approve") {
+        const batch = writeBatch(db);
+        batch.update(requestRef, { status: newStatus });
+        batch.set(doc(db, "leaveBalances", balanceId(selectedRequest.employee_id, year)), {
+          employeeId: selectedRequest.employee_id,
+          year,
+          used: { ...used, [selectedRequest.leave_type]: (used[selectedRequest.leave_type] ?? 0) + selectedRequest.total_days },
+          lastRequestId: selectedRequest.id,
+        });
+        await batch.commit();
+      } else {
+        await updateDoc(requestRef, { status: newStatus, remarks: confirmReason });
+      }
 
       // 2. PUSH NOTIFICATION: Ipadala agad sa Notifications inbox ni Employee
       await addDoc(collection(db, "notifications"), {
@@ -192,17 +239,12 @@ export default function Leave() {
   // ==============================
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (calculatedDays <= 0) return alert("Invalid dates. Please ensure start date is before end date.");
-    
-    // Add leave type limit validation
-    const maxDays: Record<string, number> = {
-      'Vacation Leave': 15, 'Sick Leave': 15, 'Emergency Leave': 3,
-      'Maternity Leave': 105, 'Paternity Leave': 7, 'Bereavement Leave': 3, 'Study Leave': 30
-    };
-    if (maxDays[addFormData.leave_type] && calculatedDays > maxDays[addFormData.leave_type]) {
-      return alert(`${addFormData.leave_type} cannot exceed ${maxDays[addFormData.leave_type]} days.`);
-    }
-    
+    if (!addFormData.start_date) return alert("Please choose start and end dates.");
+    const year = leaveYear(addFormData.start_date);
+    const empRequests = leaveRequests.filter((r) => r.employee_id === addFormData.employee_id);
+    const leaveError = validateLeave(addFormData, usedFor(addFormData.employee_id, year), pendingDaysFor(empRequests, addFormData.leave_type, year));
+    if (leaveError) return alert(leaveError);
+
     if (!addFormData.employeeName.trim() || !addFormData.employee_id.trim()) return alert("Employee name and ID are required.");
     if (!addFormData.reason.trim()) return alert("Reason is required.");
 
@@ -247,6 +289,7 @@ export default function Leave() {
           <h1 className="text-3xl font-bold text-[#1B1717] mb-2 tracking-tight">Leave Management</h1>
           <p className="text-gray-500 font-medium">Review and process employee time-off requests</p>
         </div>
+        <div className="flex gap-3">
         <button onClick={() => { 
           setAddFormData(prev => ({ 
             ...prev, 
@@ -257,6 +300,12 @@ export default function Leave() {
         }} className="bg-[#810100] text-white px-5 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-[#630000] shadow-sm transition-all">
           <Plus className="w-4 h-4"/> Add Request
         </button>
+        {currentUser?.role === 'admin' && (
+          <button onClick={rebuildBalances} disabled={rebuilding} className="border-2 border-gray-200 text-gray-600 px-5 py-2.5 rounded-lg font-bold hover:bg-gray-50 disabled:opacity-50 text-sm">
+            {rebuilding ? 'Recalculating...' : 'Recalculate Balances'}
+          </button>
+        )}
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -284,29 +333,29 @@ export default function Leave() {
         </div>
       </div>
 
-      {/* Filters Card */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      {/* Filters + Leave List (one card, same layout as Time > Timesheets) */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+       <div className="p-6 border-b border-gray-100">
+        <h2 className="text-xl font-black text-[#1B1717] mb-6">Filter Records</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-          <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Status</label><select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"><option value="all">All Statuses</option><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Rejected">Rejected</option><option value="Cancelled">Cancelled</option></select></div>
-          <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Leave Type</label><select value={selectedLeaveType} onChange={(e) => setSelectedLeaveType(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"><option value="all">All Types</option>{leaveTypes.map((type) => (<option key={type} value={type}>{type}</option>))}</select></div>
-          <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1">From Date</label><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"/></div>
-          <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1">To Date</label><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"/></div>
+          <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Status</label><select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"><option value="all">All Statuses</option><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Rejected">Rejected</option><option value="Cancelled">Cancelled</option></select></div>
+          <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Leave Type</label><select value={selectedLeaveType} onChange={(e) => setSelectedLeaveType(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"><option value="all">All Types</option>{leaveTypes.map((type) => (<option key={type} value={type}>{type}</option>))}</select></div>
+          <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">From Date</label><input autoComplete="off" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"/></div>
+          <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">To Date</label><input autoComplete="off" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full px-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100]"/></div>
         </div>
 
         <div className="flex items-center justify-between pt-4 border-t border-gray-50">
           <div className="relative w-1/3">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search employee..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100] text-sm"/>
+            <input autoComplete="off" type="text" placeholder="Search employee..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-100 font-bold rounded-xl outline-none focus:border-[#810100] text-sm"/>
           </div>
           <div className="flex gap-3">
             <button onClick={resetFilters} className="px-5 py-2.5 border-2 border-gray-100 rounded-xl hover:bg-gray-50 font-bold text-gray-600 transition-colors text-sm">Clear Filters</button>
             <button onClick={exportToCSV} className="flex items-center gap-2 px-5 py-2.5 bg-[#810100] text-white rounded-xl hover:bg-[#630000] font-bold transition-colors text-sm shadow-md"><Download className="w-4 h-4" /> Export Report</button>
           </div>
         </div>
-      </div>
+       </div>
 
-      {/* Leave List Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         {loading ? (
           <div className="p-20 text-center"><Loader2 className="w-10 h-10 animate-spin text-[#810100] mx-auto" /></div>
         ) : (
@@ -393,9 +442,23 @@ export default function Leave() {
                     <p className="font-bold text-[#1B1717]">to {selectedRequest.end_date}</p>
                  </div>
                  <div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Days Deducted</p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Working Days</p>
                     <p className="font-black text-3xl text-[#1B1717]">{selectedRequest.total_days}</p>
                  </div>
+                 {(() => {
+                   const year = leaveYear(selectedRequest.start_date);
+                   const left = remaining(selectedRequest.leave_type, usedFor(selectedRequest.employee_id, year));
+                   const after = selectedRequest.status === "Pending" ? left - selectedRequest.total_days : left;
+                   return (
+                     <div className={`col-span-2 p-4 rounded-xl ${after < 0 ? "bg-red-50 text-red-700" : "bg-gray-50 text-gray-700"}`}>
+                       <p className="text-[10px] font-black uppercase tracking-widest mb-1">{selectedRequest.leave_type} balance ({year})</p>
+                       <p className="font-bold text-sm">
+                         {Math.max(left, 0)} of {LEAVE_LIMITS[selectedRequest.leave_type] ?? 0} days left
+                         {selectedRequest.status === "Pending" && (after < 0 ? " (not enough credits to approve)" : ` → ${after} after approval`)}
+                       </p>
+                     </div>
+                   );
+                 })()}
                  <div className="col-span-2">
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Reason Provided</p>
                     <p className="font-medium text-gray-700 bg-gray-50 p-4 rounded-xl border border-gray-100">{selectedRequest.reason}</p>
@@ -473,11 +536,11 @@ export default function Leave() {
             <form onSubmit={handleAddSubmit} className="p-6 space-y-5">
               <div>
                 <label className="block text-xs font-black text-gray-500 uppercase mb-1">Employee Name *</label>
-                <input type="text" required readOnly className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold focus:border-[#810100] outline-none bg-gray-50" value={addFormData.employeeName} onChange={e => setAddFormData({...addFormData, employeeName: e.target.value})}/>
+                <input autoComplete="off" type="text" required readOnly className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold focus:border-[#810100] outline-none bg-gray-50" value={addFormData.employeeName} onChange={e => setAddFormData({...addFormData, employeeName: e.target.value})}/>
               </div>
               <div>
                 <label className="block text-xs font-black text-gray-500 uppercase mb-1">Employee ID *</label>
-                <input type="text" required readOnly className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold focus:border-[#810100] outline-none bg-gray-50" value={addFormData.employee_id} onChange={e => setAddFormData({...addFormData, employee_id: e.target.value})}/>
+                <input autoComplete="off" type="text" required readOnly className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold focus:border-[#810100] outline-none bg-gray-50" value={addFormData.employee_id} onChange={e => setAddFormData({...addFormData, employee_id: e.target.value})}/>
               </div>
               <div>
                 <label className="block text-xs font-black text-gray-500 uppercase mb-1">Leave Type *</label>
@@ -486,8 +549,8 @@ export default function Leave() {
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">Start Date *</label><input type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={addFormData.start_date} onChange={e => setAddFormData({...addFormData, start_date: e.target.value})}/></div>
-                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">End Date *</label><input type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={addFormData.end_date} onChange={e => setAddFormData({...addFormData, end_date: e.target.value})}/></div>
+                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">Start Date *</label><input autoComplete="off" type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={addFormData.start_date} onChange={e => setAddFormData({...addFormData, start_date: e.target.value})}/></div>
+                <div><label className="block text-xs font-black text-gray-500 uppercase mb-1">End Date *</label><input autoComplete="off" type="date" required className="w-full border-2 border-gray-100 rounded-xl p-3 font-bold" value={addFormData.end_date} onChange={e => setAddFormData({...addFormData, end_date: e.target.value})}/></div>
               </div>
               <div className="bg-[#fce8e8] p-4 rounded-xl border-2 border-dashed border-[#810100]/20 flex justify-between items-center">
                 <span className="text-xs font-black text-[#810100] uppercase">Calculated Days:</span>

@@ -234,20 +234,57 @@ service cloud.firestore {
     // Employees file and may cancel while still Pending. Managers decide on
     // OTHER people's requests only (no self-approval).
     // =================================================================
+    // Yearly credits in working days — same numbers as src/app/lib/leavePolicy.ts.
+    function leaveLimit(t) {
+      return {
+        'Vacation Leave': 15, 'Sick Leave': 15, 'Emergency Leave': 3, 'Bereavement Leave': 3,
+        'Paternity Leave': 7, 'Study Leave': 30, 'Maternity Leave': 105
+      }.get(t, 0);
+    }
+    function balancePath(empId, startDate) {
+      return /databases/$(database)/documents/leaveBalances/$(empId + '_' + startDate[0:4]);
+    }
+    function usedIn(path, t) {
+      return exists(path) ? get(path).data.used.get(t, 0) : 0;
+    }
+    function dateOf(d) { return timestamp.date(int(d[0:4]), int(d[5:7]), int(d[8:10])); }
+
+    // Shape + credit check for a new Pending request. Pending days aren't
+    // reserved server-side; approval is the hard gate (see below).
+    function validLeave(r) {
+      return r.status == 'Pending'
+        && isDate(r.start_date) && isDate(r.end_date)
+        && r.end_date >= r.start_date
+        && r.start_date[0:4] == r.end_date[0:4]
+        && leaveLimit(r.leave_type) > 0
+        && r.total_days is int && r.total_days >= 1
+        && r.total_days <= (dateOf(r.end_date) - dateOf(r.start_date)).seconds() / 86400 + 1
+        && r.total_days + usedIn(balancePath(r.employee_id, r.start_date), r.leave_type) <= leaveLimit(r.leave_type)
+        && shortStr(r.get('reason', ''), 1000);
+    }
+
+    // Approving must add exactly this request's days to the balance in the
+    // same batch, and can't go over the yearly limit.
+    function approvalBooked(id) {
+      let path = balancePath(resource.data.employee_id, resource.data.start_date);
+      let t = resource.data.leave_type;
+      return existsAfter(path)
+        && getAfter(path).data.lastRequestId == id
+        && getAfter(path).data.used.get(t, 0) == usedIn(path, t) + resource.data.total_days
+        && getAfter(path).data.used.get(t, 0) <= leaveLimit(t);
+    }
+
     match /leaveRequests/{id} {
       allow read: if isManager() || ownsExisting();
-      allow create: if (isHR() && request.resource.data.employee_id != myEmpId()) || (
-        isStaff()
-        && request.resource.data.employee_id == myEmpId()
-        && request.resource.data.status == 'Pending'
-        && isDate(request.resource.data.start_date)
-        && isDate(request.resource.data.end_date)
-        && request.resource.data.end_date >= request.resource.data.start_date
-        && shortStr(request.resource.data.get('reason', ''), 1000)
-      );
+      allow create: if (
+          isHR() && request.resource.data.employee_id != myEmpId() && validLeave(request.resource.data)
+        ) || (
+          isStaff() && request.resource.data.employee_id == myEmpId() && validLeave(request.resource.data)
+        );
       allow update: if isAdmin()
         || (isManager() && !ownsExisting()
-            && !changes().hasAny(['employee_id', 'start_date', 'end_date', 'leave_type']))
+            && !changes().hasAny(['employee_id', 'start_date', 'end_date', 'leave_type', 'total_days'])
+            && (request.resource.data.status != 'Approved' || resource.data.status == 'Approved' || approvalBooked(id)))
         || (
           ownsExisting()
           && resource.data.status == 'Pending'
@@ -255,6 +292,28 @@ service cloud.firestore {
           && request.resource.data.status == 'Cancelled'
         );
       allow delete: if isAdmin();
+    }
+
+    // Approved leave days per employee per year. Only changed by an approval
+    // (Pending → Approved in the same batch) or by an admin rebuild.
+    match /leaveBalances/{id} {
+      allow read: if isManager() || (isStaff() && resource.data.employeeId == myEmpId());
+      allow create, update: if isAdmin() || (isManager() && validBooking(id));
+      allow delete: if isAdmin();
+    }
+
+    function validBooking(id) {
+      let reqPath = /databases/$(database)/documents/leaveRequests/$(request.resource.data.lastRequestId);
+      let before = get(reqPath).data;
+      let t = before.leave_type;
+      let oldUsed = resource == null ? {} : resource.data.used;
+      return before.status == 'Pending'
+        && getAfter(reqPath).data.status == 'Approved'
+        && before.employee_id != myEmpId()
+        && id == before.employee_id + '_' + before.start_date[0:4]
+        && request.resource.data.employeeId == before.employee_id
+        && request.resource.data.used.get(t, 0) == oldUsed.get(t, 0) + before.total_days
+        && request.resource.data.used.diff(oldUsed).affectedKeys().hasOnly([t]);
     }
 
     match /requests/{id} {
@@ -290,6 +349,52 @@ service cloud.firestore {
         isManager()
         && request.resource.data.get('employeeId', '') != myEmpId()
         && request.resource.data.get('customEmployeeId', '') != myEmpId()
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // 360° reviews (src/app/lib/evaluation.ts). A manager opens a review by
+    // creating one request per reviewer (self + peers). Each reviewer answers
+    // once; the response ID equals the request ID so the two can be matched.
+    // Raw answers are visible only to managers and the reviewer, never to the
+    // person being reviewed (they see the combined performance_evaluation).
+    match /evaluation_requests/{id} {
+      allow read: if isManager()
+        || (isStaff() && resource.data.reviewerEmpId == myEmpId());
+      allow create: if isManager()
+        && request.resource.data.subjectEmpId != myEmpId()
+        && id == request.resource.data.periodId + '__' + request.resource.data.subjectEmpId + '__'
+                 + request.resource.data.type + '__' + request.resource.data.reviewerEmpId
+        && (
+          (request.resource.data.type == 'self'
+            && request.resource.data.reviewerEmpId == request.resource.data.subjectEmpId)
+          || (request.resource.data.type == 'peer'
+            && request.resource.data.reviewerEmpId != request.resource.data.subjectEmpId)
+        );
+      allow delete: if isManager();
+      allow update: if isAdmin();
+    }
+
+    function validEvalResponse(id) {
+      let r = request.resource.data;
+      return r.reviewerUid == request.auth.uid
+        && r.reviewerEmpId == myEmpId()
+        && r.score is number && r.score >= 1 && r.score <= 5
+        && r.answers is map
+        && id == r.periodId + '__' + r.subjectEmpId + '__' + r.type + '__' + r.reviewerEmpId;
+    }
+
+    match /evaluation_responses/{id} {
+      allow read: if isManager()
+        || (isStaff() && resource.data.reviewerUid == request.auth.uid);
+      // Self/peer: only with a matching request addressed to you.
+      // Supervisor: any manager, never about themselves. Create-only = once.
+      allow create: if isStaff() && validEvalResponse(id) && (
+        (request.resource.data.type in ['self', 'peer']
+          && exists(/databases/$(database)/documents/evaluation_requests/$(id)))
+        || (request.resource.data.type == 'supervisor'
+          && isManager()
+          && request.resource.data.subjectEmpId != myEmpId())
       );
       allow update, delete: if isAdmin();
     }

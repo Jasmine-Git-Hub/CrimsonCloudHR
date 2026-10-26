@@ -379,11 +379,11 @@ const Attendance: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">From Date</label>
-              <input type="date" value={filters.fromDate} onChange={e => setFilters({...filters, fromDate: e.target.value})} className="w-full px-4 py-2 border-2 border-gray-100 rounded-xl text-sm font-bold outline-none focus:border-[#810100]"/>
+              <input autoComplete="off" type="date" value={filters.fromDate} onChange={e => setFilters({...filters, fromDate: e.target.value})} className="w-full px-4 py-2 border-2 border-gray-100 rounded-xl text-sm font-bold outline-none focus:border-[#810100]"/>
             </div>
             <div>
               <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">To Date</label>
-              <input type="date" value={filters.toDate} onChange={e => setFilters({...filters, toDate: e.target.value})} className="w-full px-4 py-2 border-2 border-gray-100 rounded-xl text-sm font-bold outline-none focus:border-[#810100]"/>
+              <input autoComplete="off" type="date" value={filters.toDate} onChange={e => setFilters({...filters, toDate: e.target.value})} className="w-full px-4 py-2 border-2 border-gray-100 rounded-xl text-sm font-bold outline-none focus:border-[#810100]"/>
             </div>
             <div>
               <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Status</label>

@@ -256,7 +256,7 @@ export default function Payroll() {
                   <h2 className="text-lg font-black text-[#1B1717]">Employee Cutoff Breakdown</h2>
                   <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input type="text" placeholder="Search employee..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none text-sm font-bold"/>
+                    <input autoComplete="off" type="text" placeholder="Search employee..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border-2 border-gray-100 rounded-xl focus:border-[#810100] outline-none text-sm font-bold"/>
                   </div>
                 </div>
 
@@ -481,11 +481,11 @@ export default function Payroll() {
             <div className="p-8 space-y-5">
               <div>
                 <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Period Start</label>
-                <input type="date" value={payrollForm.periodStart} onChange={e => setPayrollForm({...payrollForm, periodStart: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl font-bold focus:border-[#810100] outline-none" required/>
+                <input autoComplete="off" type="date" value={payrollForm.periodStart} onChange={e => setPayrollForm({...payrollForm, periodStart: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl font-bold focus:border-[#810100] outline-none" required/>
               </div>
               <div>
                 <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Period End</label>
-                <input type="date" value={payrollForm.periodEnd} onChange={e => setPayrollForm({...payrollForm, periodEnd: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl font-bold focus:border-[#810100] outline-none" required/>
+                <input autoComplete="off" type="date" value={payrollForm.periodEnd} onChange={e => setPayrollForm({...payrollForm, periodEnd: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl font-bold focus:border-[#810100] outline-none" required/>
               </div>
 
               <div className="bg-[#fce8e8] border border-[#810100]/20 p-4 rounded-xl mt-4">
